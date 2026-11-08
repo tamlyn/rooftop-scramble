@@ -19,6 +19,7 @@ There are no automated tests. Check gameplay and visual changes in a real browse
   - A registration in `courses.ts`.
   - A `reseed(...)` call at the start of its build function, so its random dressing doesn't depend on which courses were built first.
   - A `killHeight` that suits it: runners below it respawn at their last checkpoint.
+- **Tutorial courses** set `solo` in `courses.ts` so no CPUs join. They pass a `lesson` to each `checkpoint(...)`, and the HUD shows it on the way there. Lesson text names controls as `{jump}`, `{dive}` and so on, which each player's `InputSource.buttons` fills in.
 - **CPU runners follow the routes.**
   - Each section's `route`s are waypoint paths to its next checkpoint, and route 0 is the fallback for CPUs that get stuck.
   - CPUs can't dive or wall-jump, so every route needs gaps they can clear with a plain running jump: about 4 m on the level, more with a drop.

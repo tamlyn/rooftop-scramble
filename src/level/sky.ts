@@ -9,7 +9,7 @@ import { BOUNCE, INK, WHITE, arch, deco, finishLine, lighten, random, reseed, da
  */
 
 const KILL_HEIGHT = -14;
-const RAINBOW = [0xff5a5f, 0xff9f43, 0xffd23f, 0x5fd068, 0x4fa8ff, 0x9b6bff];
+export const RAINBOW = [0xff5a5f, 0xff9f43, 0xffd23f, 0x5fd068, 0x4fa8ff, 0x9b6bff];
 const THICKNESS = 1.2;
 
 /** A downward-pointing, darkening wedge under a floating block, so it reads as an island rather than a slab. */
@@ -29,7 +29,7 @@ function underside(s: Section, x0: number, x1: number, d0: number, d1: number, y
 }
 
 /** A floating block whose top is at `y`. */
-function pad(s: Section, x0: number, x1: number, d0: number, d1: number, y: number, color: number, under = true) {
+export function pad(s: Section, x0: number, x1: number, d0: number, d1: number, y: number, color: number, under = true) {
   s.box(x0, x1, d0, d1, y - THICKNESS, y, { color, top: lighten(color, 0.35) });
   if (under) underside(s, x0, x1, d0, d1, y, darken(color, 0.15));
 }
@@ -55,12 +55,12 @@ function rainbowAcross(s: Section, x0: number, x1: number, d0: number, d1: numbe
 }
 
 /** A sheer block to climb, banded so its height is easy to judge. */
-function wall(s: Section, x0: number, x1: number, d0: number, d1: number, y0: number, y1: number, color: number) {
+export function wall(s: Section, x0: number, x1: number, d0: number, d1: number, y0: number, y1: number, color: number) {
   s.box(x0, x1, d0, d1, y0, y1, { color, top: lighten(color, 0.4) });
   for (let y = y0 + 1; y < y1 - 0.3; y += 1) s.box(x0 - 0.05, x1 + 0.05, d0 - 0.05, d1 + 0.05, y - 0.08, y + 0.08, deco(lighten(color, 0.5), { bevel: false }));
 }
 
-function bouncer(s: Section, x0: number, x1: number, d0: number, d1: number, y: number) {
+export function bouncer(s: Section, x0: number, x1: number, d0: number, d1: number, y: number) {
   s.box(x0, x1, d0, d1, y, y + 0.7, { color: WHITE });
   s.box(x0 + 0.15, x1 - 0.15, d0 + 0.15, d1 - 0.15, y + 0.7, y + 1, { color: BOUNCE, kind: 'bounce' });
 }
@@ -71,7 +71,7 @@ function stone(s: Section, x: number, d: number, y: number, r: number, color: nu
 }
 
 /** Floating gems for decoration, kept clear of the course. */
-function gems(s: Section, count: number, y0: number, y1: number) {
+export function gems(s: Section, count: number, y0: number, y1: number) {
   for (let i = 0; i < count; i++) {
     const side = random() < 0.5 ? -1 : 1;
     const x = side * (20 + random() * 25);

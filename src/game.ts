@@ -7,8 +7,8 @@ import { Bot } from './bot';
 import { ItemSystem } from './items';
 import { Fx } from './fx';
 import { Traffic } from './traffic';
-import { Hud, formatTime } from './hud';
-import { NO_INPUT, type InputSource } from './input';
+import { Hud, formatTime, type HudState } from './hud';
+import { NO_INPUT, type ButtonNames, type InputSource } from './input';
 import { sfx } from './audio';
 import { NEAR, FAR, SUN_DIRECTION, type Pipeline } from './render';
 import { disposeTree } from './materials';
@@ -57,6 +57,7 @@ export class Game {
   private firstFinish: number | null = null;
   private resultsAge = 0;
   private resultsShown = 0;
+  private lessonCache = new Map<string, HudState['lesson']>();
 
   constructor(
     private scene: THREE.Scene,
@@ -335,6 +336,7 @@ export class Game {
       const e = r.effects;
       const effect = e.bulldozer > 0 ? '🚜 BULLDOZER!' : e.coffee > 0 ? '☕ ZOOM!' : e.spring > 0 ? '👟 BOING!' : e.pigeons > 0 ? '🐦 PIGEONS!' : '';
       h.hud.update({
+        lesson: this.phase === 'countdown' || r.finished ? null : this.lessonFor(r.nextCheckpoint, h.source),
         place: r.place,
         total,
         item: r.item,
@@ -346,6 +348,24 @@ export class Game {
         effect,
       });
     }
+  }
+
+  /** The lesson on the way to a checkpoint, with control names filled in for the player's device. */
+  private lessonFor(checkpoint: number, source: InputSource): HudState['lesson'] {
+    const key = `${checkpoint}:${source.id}`;
+    if (this.lessonCache.has(key)) return this.lessonCache.get(key)!;
+    const lessons = this.level.checkpoints.flatMap((cp) => (cp.lesson ? [cp.lesson] : []));
+    const lesson = this.level.checkpoints[checkpoint]?.lesson;
+    const result = lesson
+      ? {
+          step: lessons.indexOf(lesson) + 1,
+          total: lessons.length,
+          title: lesson.title,
+          html: lesson.text.replace(/\{(\w+)\}/g, (_, name: keyof ButtonNames) => `<kbd>${source.buttons[name]}</kbd>`),
+        }
+      : null;
+    this.lessonCache.set(key, result);
+    return result;
   }
 
   private updateResults(dt: number) {
@@ -381,7 +401,7 @@ export class Game {
       .map((r) => {
         // Humans who timed out are frozen, unlike CPUs, which race on.
         const time = r.finished ? formatTime(r.finishTime!) : r.isBot ? 'still running' : 'did not finish';
-        return `<li style="--c:${css(r.color)}"><b>${r.place}</b><span>${r.name}</span><em>${time}</em></li>`;
+        return `<li style="--c:${css(r.color)}"><b>${r.place}</b><span>${r.name}</span><em${r.finished ? '' : ' class="pending"'}>${time}</em></li>`;
       })
       .join('');
     if (!this.resultsEl) {
@@ -389,7 +409,7 @@ export class Game {
       this.resultsEl.className = 'results';
       this.hudContainer.appendChild(this.resultsEl);
     }
-    this.resultsEl.innerHTML = `<h1>Results</h1><ol>${rows}</ol><p>Jump / Enter to race again · Item to return to the lobby</p>`;
+    this.resultsEl.innerHTML = `<h1>Results</h1><ol>${rows}</ol><p class="keys"><span><kbd>Jump</kbd> Race again</span><span><kbd>Item</kbd> Back to the lobby</span></p>`;
   }
 
   render(renderer: THREE.WebGLRenderer, pipeline: Pipeline, sun: THREE.DirectionalLight) {

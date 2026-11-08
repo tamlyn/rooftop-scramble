@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { COURSES } from './level/courses';
 import type { Level } from './level/builder';
 import { Game, PLAYER_COLORS } from './game';
-import { KeyboardSource, GamepadSource, KEYBOARD_SCHEMES, connectedGamepadIndices, type InputSource } from './input';
+import { KeyboardSource, GamepadSource, connectedGamepadIndices, type InputSource } from './input';
 import { unlockAudio } from './audio';
 import { MAX_RUNNERS } from './config';
 import { Pipeline, createSky, createEnvironment, NEAR, FAR, HAZE, SUN_DIRECTION } from './render';
@@ -79,24 +79,37 @@ function availableSources(): InputSource[] {
   return [...keyboardSources, ...gamepadSources.values()];
 }
 
+function cpuCount(): number {
+  return cpus && !COURSES[courseIndex].solo ? MAX_RUNNERS - joined.length : 0;
+}
+
 function renderLobby() {
-  const help: Record<string, string> = {
-    'kb-wasd': KEYBOARD_SCHEMES.wasd.help,
-    'kb-arrows': KEYBOARD_SCHEMES.arrows.help,
-  };
   slotsEl.innerHTML = [0, 1, 2, 3]
     .map((i) => {
       const s = joined[i];
+      if (!s) {
+        const next = i === joined.length ? ' next' : '';
+        return `<li class="slot empty${next}"><b>${i + 1}</b><span>${next ? 'Press jump to join' : 'Free'}</span></li>`;
+      }
       const color = '#' + PLAYER_COLORS[i].toString(16).padStart(6, '0');
-      if (!s) return `<div class="slot empty"><b>P${i + 1}</b><span>Press jump to join</span></div>`;
-      const controls = help[s.id] ?? 'Stick/D-pad move · A jump · X/B dive · Y/RB item';
-      return `<div class="slot" style="--c:${color}"><b>P${i + 1}</b><span>${s.label}</span><small>${controls}</small></div>`;
+      const b = s.buttons;
+      const controls = `<kbd>${b.move}</kbd> move <kbd>${b.jump}</kbd> jump <kbd>${b.dive}</kbd> dive <kbd>${b.item}</kbd> item`;
+      return `<li class="slot" style="--c:${color}"><b>${i + 1}</b><span>${s.label}</span><small>${controls}</small></li>`;
     })
     .join('');
   const course = COURSES[courseIndex];
-  courseEl.innerHTML = `<button data-step="-1">◀</button><div><b>${course.name}</b><small>${course.blurb}</small></div><button data-step="1">▶</button>`;
-  const cpuCount = cpus ? MAX_RUNNERS - joined.length : 0;
-  cpuEl.textContent = cpus ? `${cpuCount} CPU runner${cpuCount === 1 ? '' : 's'} (C to toggle)` : 'No CPU runners (C to toggle)';
+  const badge = course.solo ? '<small>Practice</small>' : '';
+  courseEl.innerHTML =
+    `<button data-step="-1" aria-label="Previous course">◀</button>` +
+    `<div class="plate">${course.name}${badge}</div>` +
+    `<button data-step="1" aria-label="Next course">▶</button>` +
+    `<p>${course.blurb}</p>`;
+  const n = cpuCount();
+  cpuEl.innerHTML = course.solo
+    ? 'No CPU runners on this course.'
+    : cpus
+      ? `${n} CPU runner${n === 1 ? '' : 's'} join the race. <kbd>C</kbd> turns them off.`
+      : 'No CPU runners. <kbd>C</kbd> turns them on.';
 }
 
 courseEl.addEventListener('click', (e) => {
@@ -132,7 +145,7 @@ function updateLobby() {
 function startRace() {
   unlockAudio();
   lobbyEl.hidden = true;
-  game = new Game(scene, level, joined, cpus ? MAX_RUNNERS - joined.length : 0, hudRoot, (choice) => {
+  game = new Game(scene, level, joined, cpuCount(), hudRoot, (choice) => {
     game?.dispose();
     game = null;
     if (choice === 'again') startRace();

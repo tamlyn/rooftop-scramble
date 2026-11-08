@@ -26,6 +26,14 @@ export interface Checkpoint {
   halfWidth: number;
   spawn: THREE.Vector3;
   heading: number;
+  /** What to teach on the way to this checkpoint, for tutorial courses. */
+  lesson?: Lesson;
+}
+
+/** `text` may name controls as {move}, {forward}, {jump}, {dive} and {item}, filled in per player. */
+export interface Lesson {
+  title: string;
+  text: string;
 }
 
 export interface CarLane {
@@ -577,8 +585,11 @@ export class Section {
     this.lb.carLanes.push({ from: reverse ? b : a, to: reverse ? a : b, speed, gap, color });
   }
 
-  /** Gate line across the course at distance `d`. Defaults to the section's exit. Runners respawn on whatever is at height `y`. */
-  checkpoint(d?: number, y = 0) {
+  /**
+   * Gate line across the course at distance `d`. Defaults to the section's exit. Runners respawn on whatever is at
+   * height `y`. A `lesson` is shown to players on their way to this gate.
+   */
+  checkpoint(d?: number, y = 0, lesson?: Lesson) {
     const W = SECTION_WIDTH;
     let point: THREE.Vector3;
     let dir: THREE.Vector3;
@@ -602,6 +613,7 @@ export class Section {
       halfWidth: W / 2 + 4,
       spawn: point.clone().addScaledVector(dir, 2),
       heading,
+      lesson,
     });
     this.lb.routes.push(this.lb.pendingRoutes);
     this.lb.pendingRoutes = [];

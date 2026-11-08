@@ -2,11 +2,12 @@
 
 A silly split-screen parkour racing game built with three.js. Up to four players race across town (with CPU runners filling the grid to six), climbing walls, vaulting barriers, bouncing off market stalls and knocking each other flying.
 
-There are three courses:
+There are three courses and a training ground:
 
 - **High Street**: shops, a canal and a building site, with rooftop routes above the road.
 - **Rooftop Run**: entirely on the roofs. The street is out of bounds, so every alley is a jump.
 - **Sky Circuit**: a rainbow obstacle course floating above the clouds.
+- **Training Ground**: one short lesson per move, with on-screen prompts for your controller and no CPU runners. It's one step left of the High Street in the lobby.
 
 ```sh
 npm install

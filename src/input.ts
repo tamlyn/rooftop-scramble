@@ -10,9 +10,19 @@ export interface Controls {
   startPressed: boolean;
 }
 
+/** What each control is called on a device, for on-screen prompts. */
+export interface ButtonNames {
+  move: string;
+  forward: string;
+  jump: string;
+  dive: string;
+  item: string;
+}
+
 export interface InputSource {
   readonly id: string;
   readonly label: string;
+  readonly buttons: ButtonNames;
   poll(): Controls;
 }
 
@@ -37,18 +47,20 @@ interface KeyScheme {
   item: string;
 }
 
-export const KEYBOARD_SCHEMES: Record<string, { label: string; keys: KeyScheme; help: string }> = {
+export const KEYBOARD_SCHEMES: Record<string, { label: string; keys: KeyScheme; buttons: ButtonNames }> = {
   wasd: {
     label: 'Keyboard (WASD)',
     keys: { left: 'KeyA', right: 'KeyD', up: 'KeyW', down: 'KeyS', jump: 'Space', dive: 'ShiftLeft', item: 'KeyE' },
-    help: 'WASD move · Space jump · L-Shift dive/tackle · E item',
+    buttons: { move: 'WASD', forward: 'W', jump: 'Space', dive: 'Left Shift', item: 'E' },
   },
   arrows: {
     label: 'Keyboard (Arrows)',
     keys: { left: 'ArrowLeft', right: 'ArrowRight', up: 'ArrowUp', down: 'ArrowDown', jump: 'Slash', dive: 'Period', item: 'Comma' },
-    help: 'Arrows move · / jump · . dive/tackle · , item',
+    buttons: { move: 'Arrows', forward: '↑', jump: '/', dive: '.', item: ',' },
   },
 };
+
+const GAMEPAD_BUTTONS: ButtonNames = { move: 'Left stick', forward: 'Stick up', jump: 'A', dive: 'X', item: 'Y' };
 
 class Edges {
   private prev = new Map<string, boolean>();
@@ -62,6 +74,7 @@ class Edges {
 export class KeyboardSource implements InputSource {
   readonly id: string;
   readonly label: string;
+  readonly buttons: ButtonNames;
   private keys: KeyScheme;
   private seen = new Map<string, number>();
 
@@ -69,6 +82,7 @@ export class KeyboardSource implements InputSource {
     this.id = `kb-${scheme}`;
     this.label = KEYBOARD_SCHEMES[scheme].label;
     this.keys = KEYBOARD_SCHEMES[scheme].keys;
+    this.buttons = KEYBOARD_SCHEMES[scheme].buttons;
   }
 
   poll(): Controls {
@@ -97,6 +111,7 @@ const DEADZONE = 0.2;
 export class GamepadSource implements InputSource {
   readonly id: string;
   readonly label: string;
+  readonly buttons = GAMEPAD_BUTTONS;
   private edges = new Edges();
 
   constructor(private index: number) {

@@ -11,6 +11,7 @@ export interface HudState {
   message: string;
   pigeons: boolean;
   effect: string;
+  lesson: { step: number; total: number; title: string; html: string } | null;
 }
 
 function ordinal(n: number): string {
@@ -35,8 +36,10 @@ export class Hud {
   private message = document.createElement('div');
   private pigeons = document.createElement('div');
   private effect = document.createElement('div');
+  private lesson = document.createElement('div');
   private dotEls: HTMLDivElement[] = [];
   private lastMessage = '';
+  private lastLesson = '';
 
   constructor(container: HTMLElement, name: string, color: string) {
     this.el.className = 'hud';
@@ -51,6 +54,8 @@ export class Hud {
     this.message.className = 'hud-message';
     this.pigeons.className = 'hud-pigeons';
     this.effect.className = 'hud-effect';
+    this.lesson.className = 'hud-lesson';
+    this.lesson.hidden = true;
     for (let i = 0; i < 14; i++) {
       const p = document.createElement('span');
       p.textContent = '🐦';
@@ -60,7 +65,7 @@ export class Hud {
       p.style.fontSize = `${5 + ((i * 7) % 6)}em`;
       this.pigeons.appendChild(p);
     }
-    this.el.append(this.pigeons, tag, this.place, this.item, this.timer, this.track, this.effect, this.message);
+    this.el.append(this.pigeons, tag, this.place, this.item, this.timer, this.track, this.effect, this.lesson, this.message);
     container.appendChild(this.el);
   }
 
@@ -70,7 +75,7 @@ export class Hud {
   }
 
   update(s: HudState) {
-    this.place.innerHTML = `${s.place}<sup>${ordinal(s.place)}</sup><span>/${s.total}</span>`;
+    this.place.innerHTML = s.total > 1 ? `${s.place}<sup>${ordinal(s.place)}</sup><span>/${s.total}</span>` : '';
     let icon = '';
     if (s.roulette > 0) icon = ITEM_INFO[ITEM_KINDS[Math.floor(s.roulette * 20) % ITEM_KINDS.length]].icon;
     else if (s.item) icon = ITEM_INFO[s.item].icon;
@@ -101,6 +106,17 @@ export class Hud {
     }
     this.pigeons.classList.toggle('active', s.pigeons);
     this.effect.textContent = s.effect;
+
+    const l = s.lesson;
+    const lesson = l ? `<small>${l.step} of ${l.total}</small><b>${l.title}</b><p>${l.html}</p>` : '';
+    if (lesson !== this.lastLesson) {
+      this.lastLesson = lesson;
+      this.lesson.innerHTML = lesson;
+      this.lesson.hidden = !l;
+      this.lesson.classList.remove('enter');
+      void this.lesson.offsetWidth;
+      if (l) this.lesson.classList.add('enter');
+    }
   }
 
   dispose() {
