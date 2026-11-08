@@ -137,23 +137,33 @@ function makePigeon(): THREE.Group {
   return g;
 }
 
+/** A name tag: white text on a pill in the runner's colour, like the player plaques in the lobby. */
 function makeLabel(text: string, color: number): THREE.Sprite {
   const c = document.createElement('canvas');
-  c.width = 128;
-  c.height = 64;
   const g = c.getContext('2d')!;
-  g.font = 'bold 40px system-ui, sans-serif';
+  const font = "700 30px 'Atkinson Hyperlegible', system-ui, sans-serif";
+  g.font = font;
+  const h = 44;
+  const w = Math.ceil(g.measureText(text).width) + 28;
+  c.width = w + 4;
+  c.height = h + 4;
+  g.font = font;
+  g.fillStyle = '#' + new THREE.Color(color).getHexString();
+  g.beginPath();
+  g.roundRect(2, 2, w, h, h / 2);
+  g.fill();
+  g.lineWidth = 2.5;
+  g.strokeStyle = 'rgba(255,255,255,0.7)';
+  g.stroke();
+  g.fillStyle = '#fff';
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.lineWidth = 8;
-  g.strokeStyle = '#2a2238';
-  g.strokeText(text, 64, 32);
-  g.fillStyle = '#' + new THREE.Color(color).getHexString();
-  g.fillText(text, 64, 32);
+  g.fillText(text, c.width / 2, c.height / 2 + 1);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, transparent: true }));
-  sprite.scale.set(0.8, 0.4, 1);
+  const scale = 0.2 / c.height;
+  sprite.scale.set(c.width * scale * 1.5, c.height * scale * 1.5, 1);
   sprite.renderOrder = 10;
   return sprite;
 }

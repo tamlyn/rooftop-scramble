@@ -334,7 +334,7 @@ export class Game {
       else if (this.raceTime < 1) message = 'GO!';
       else if (r.finished && this.phase !== 'results') message = `Finished ${r.place}${['th', 'st', 'nd', 'rd'][r.place] ?? 'th'}!`;
       const e = r.effects;
-      const effect = e.bulldozer > 0 ? '🚜 BULLDOZER!' : e.coffee > 0 ? '☕ ZOOM!' : e.spring > 0 ? '👟 BOING!' : e.pigeons > 0 ? '🐦 PIGEONS!' : '';
+      const effect = e.bulldozer > 0 ? '🚜 Bulldozer' : e.coffee > 0 ? '☕ Espresso rush' : e.spring > 0 ? '👟 Spring shoes' : e.pigeons > 0 ? '🐦 Pigeons!' : '';
       h.hud.update({
         lesson: this.phase === 'countdown' || r.finished ? null : this.lessonFor(r.nextCheckpoint, h.source),
         place: r.place,

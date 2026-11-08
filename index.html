@@ -13,8 +13,6 @@
     />
     <style>
       :root {
-        --ink: #2a2238;
-        --cream: #fff6e0;
         /* Enamel street-sign colours, matching the town. */
         --enamel: #1d3a6e;
         --enamel-white: #f6f3ec;
@@ -40,7 +38,7 @@
         margin: 0;
         height: 100%;
         overflow: hidden;
-        background: var(--ink);
+        background: var(--slate);
         user-select: none;
       }
       canvas {
@@ -52,11 +50,6 @@
         position: fixed;
         inset: 0;
         pointer-events: none;
-      }
-      .outlined {
-        color: #fff;
-        -webkit-text-stroke: 0.08em var(--ink);
-        paint-order: stroke fill;
       }
 
       /* Lobby: a quiet column down the left, leaving the town flythrough visible on the right. */
@@ -231,103 +224,110 @@
         }
       }
 
-      /* In-race HUD, one per viewport */
+      /*
+       * In-race HUD, one per viewport. Sized in em so it scales with the view. Text sits straight on the scene with
+       * a soft shadow rather than a cartoon outline; anything that needs a backing gets a dark translucent tile.
+       */
       .hud {
         position: absolute;
         overflow: hidden;
-        color: #fff;
+        color: var(--enamel-white);
+        --shadow: 0 0.05em 0.3em rgb(0 0 0 / 0.45), 0 0 0.08em rgb(0 0 0 / 0.5);
       }
       .hud-name {
         position: absolute;
-        left: 1em;
-        top: 1em;
-        font-size: 1.6em;
-        font-weight: bold;
-        color: var(--player);
-        -webkit-text-stroke: 0.15em var(--ink);
-        paint-order: stroke fill;
+        left: 1.2em;
+        top: 1.1em;
+        padding: 0.12em 0.4em;
+        border-radius: 0.25em;
+        background: var(--player);
+        box-shadow: inset 0 0 0 0.09em rgb(255 255 255 / 0.7);
+        font: 900 1.5em/1 var(--display);
+        color: #fff;
+        text-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
       }
       .hud-place {
         position: absolute;
-        right: 0.6em;
-        bottom: 0.2em;
-        font-size: 6em;
-        font-weight: bold;
-        -webkit-text-stroke: 0.06em var(--ink);
-        paint-order: stroke fill;
-        line-height: 1;
+        right: 0.25em;
+        bottom: 0.05em;
+        font: 900 6.5em/1 var(--display);
+        text-shadow: var(--shadow);
       }
       .hud-place sup {
-        font-size: 0.4em;
+        font-size: 0.38em;
+        margin-left: 0.04em;
       }
       .hud-place span {
         font-size: 0.3em;
+        color: rgb(246 243 236 / 0.75);
       }
       .hud-item {
         position: absolute;
-        left: 1em;
-        top: 3.4em;
-        width: 2.2em;
-        height: 2.2em;
+        left: 0.5em;
+        top: 1.9em;
+        width: 2em;
+        height: 2em;
         font-size: 2.4em;
         display: grid;
         place-items: center;
-        background: rgb(255 246 224 / 0.85);
-        border: 0.12em solid var(--ink);
-        border-radius: 0.4em;
+        border-radius: 0.35em;
+        background: rgb(20 24 32 / 0.55);
+        box-shadow: inset 0 0 0 0.06em rgb(246 243 236 / 0.35);
       }
       .hud-item.ready {
-        animation: wiggle 0.6s infinite;
-        background: #ffd86b;
+        box-shadow: inset 0 0 0 0.09em var(--gilt);
+        animation: ready 1.1s ease-in-out infinite;
       }
-      @keyframes wiggle {
-        25% {
-          transform: rotate(-6deg) scale(1.05);
-        }
-        75% {
-          transform: rotate(6deg) scale(1.05);
+      @keyframes ready {
+        50% {
+          box-shadow: inset 0 0 0 0.09em var(--gilt), 0 0 0.5em rgb(217 171 79 / 0.6);
         }
       }
       .hud-timer {
         position: absolute;
-        right: 1em;
-        top: 0.8em;
-        font-size: 2em;
-        font-weight: bold;
-        -webkit-text-stroke: 0.12em var(--ink);
-        paint-order: stroke fill;
+        right: 0.9em;
+        top: 0.75em;
+        font: 800 2.1em/1 var(--display);
         font-variant-numeric: tabular-nums;
+        text-shadow: var(--shadow);
       }
       .hud-track {
         position: absolute;
-        left: 15%;
-        right: 15%;
-        top: 1.6em;
-        height: 0.5em;
-        background: rgb(255 246 224 / 0.8);
-        border: 0.15em solid var(--ink);
+        left: 18%;
+        right: 18%;
+        top: 1.75em;
+        height: 0.26em;
         border-radius: 1em;
+        background: rgb(246 243 236 / 0.8);
+        box-shadow: 0 0 0 0.12em rgb(20 24 32 / 0.4);
       }
+      /* A chequered finish post at the end of the track. */
       .hud-track::after {
-        content: '🏁';
+        content: '';
         position: absolute;
-        right: -1.4em;
-        top: -0.65em;
-        font-size: 1.3em;
+        right: -0.2em;
+        top: 50%;
+        width: 0.9em;
+        height: 0.9em;
+        transform: translate(100%, -50%);
+        border-radius: 0.15em;
+        background: repeating-conic-gradient(var(--slate) 0 25%, var(--enamel-white) 0 50%) 0 0 / 0.45em 0.45em;
+        box-shadow: 0 0 0 0.08em var(--enamel-white);
       }
       .hud-dot {
         position: absolute;
         top: 50%;
-        width: 0.9em;
-        height: 0.9em;
+        width: 0.7em;
+        height: 0.7em;
         border-radius: 50%;
-        border: 0.12em solid var(--ink);
+        box-shadow: 0 0 0 0.1em rgb(20 24 32 / 0.5);
         transform: translate(-50%, -50%);
         transition: left 0.2s linear;
       }
       .hud-dot.self {
-        width: 1.5em;
-        height: 1.5em;
+        width: 1.1em;
+        height: 1.1em;
+        box-shadow: 0 0 0 0.14em var(--enamel-white), 0 0.05em 0.3em rgb(0 0 0 / 0.4);
         z-index: 1;
       }
       .hud-message {
@@ -335,31 +335,39 @@
         inset: 0;
         display: grid;
         place-items: center;
-        font-size: 6em;
-        font-weight: bold;
-        color: #ffd86b;
-        -webkit-text-stroke: 0.05em var(--ink);
-        paint-order: stroke fill;
+        font: 900 7em/1 var(--display);
+        text-shadow: 0 0.03em 0.15em rgb(0 0 0 / 0.45);
         text-align: center;
       }
       .hud-message.pop {
-        animation: pop 0.4s cubic-bezier(0.3, 1.8, 0.5, 1);
+        animation: pop 0.35s cubic-bezier(0.2, 1.4, 0.4, 1);
       }
       @keyframes pop {
         from {
-          transform: scale(0.2);
+          opacity: 0;
+          transform: scale(1.6);
         }
       }
       .hud-effect {
         position: absolute;
-        left: 0;
-        right: 0;
-        bottom: 1.5em;
-        text-align: center;
-        font-size: 2.2em;
-        font-weight: bold;
-        -webkit-text-stroke: 0.1em var(--ink);
-        paint-order: stroke fill;
+        left: 50%;
+        top: 3.2em;
+        transform: translateX(-50%);
+        padding: 0.25em 0.8em;
+        border-radius: 2em;
+        background: rgb(20 24 32 / 0.6);
+        font-size: 1.4em;
+        font-weight: 700;
+        white-space: nowrap;
+      }
+      .hud-effect:empty {
+        display: none;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .hud-item.ready,
+        .hud-message.pop {
+          animation: none;
+        }
       }
       .hud-pigeons {
         position: absolute;
