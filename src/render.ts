@@ -5,8 +5,10 @@ export const NEAR = 0.3;
 export const FAR = 420;
 
 export const SKY_TOP = 0x3f9cf0;
-export const SKY_HORIZON = 0xd4ecf7;
-export const SUN_DIRECTION = new THREE.Vector3(-30, 60, 20).normalize();
+const SKY_HORIZON = 0xd4ecf7;
+export const HAZE = 0xc6dcee;
+// Low enough to rake across facades and pick out their relief.
+export const SUN_DIRECTION = new THREE.Vector3(-40, 52, 25).normalize();
 const BACKDROP = 0x2a2238;
 const MAX_VIEWS = 4;
 const BLOOM_LEVELS = 4;
@@ -54,7 +56,7 @@ uniform vec2 texel;
 varying vec2 vUv;
 
 const int SAMPLES = 16;
-const float RADIUS = 1.1;
+const float RADIUS = 0.7;
 
 void main() {
   int vi = viewAt(vUv);
@@ -172,10 +174,10 @@ void main() {
 
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
-  // Grade after tone mapping: a touch more saturation and violet in the deepest shadows.
+  // Grade after tone mapping: cool the shadows and warm the highlights slightly, like late-morning sun.
   float luma = dot(gl_FragColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-  gl_FragColor.rgb = mix(vec3(luma), gl_FragColor.rgb, 1.12);
-  gl_FragColor.rgb += vec3(0.02, 0.0, 0.04) * (1.0 - smoothstep(0.0, 0.3, luma));
+  gl_FragColor.rgb += vec3(-0.01, 0.0, 0.025) * (1.0 - smoothstep(0.0, 0.4, luma));
+  gl_FragColor.rgb += vec3(0.02, 0.01, -0.01) * smoothstep(0.5, 1.0, luma);
   #include <colorspace_fragment>
 }`;
 
@@ -232,7 +234,7 @@ export class Pipeline {
         tAO: { value: this.ao.texture },
         tBloom: { value: this.up[0].texture },
         aoTexel: { value: new THREE.Vector2() },
-        bloomStrength: { value: 0.35 },
+        bloomStrength: { value: 0.12 },
       },
       true,
     );
@@ -288,7 +290,8 @@ export class Pipeline {
     this.down.forEach((target, i) => {
       this.downPass.uniforms.tInput.value = input;
       this.downPass.uniforms.texel.value.set(1 / (target.width * 2), 1 / (target.height * 2));
-      this.downPass.uniforms.threshold.value = i === 0 ? 0.85 : 0;
+      // High enough that sunlit cream walls don't glow; only lamps, glints and items should.
+      this.downPass.uniforms.threshold.value = i === 0 ? 1.3 : 0;
       this.draw(this.downPass, target);
       input = target.texture;
     });

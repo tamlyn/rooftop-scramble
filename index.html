@@ -68,6 +68,36 @@
         -webkit-text-stroke: 0.15em var(--ink);
         paint-order: stroke fill;
       }
+      #course {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        background: var(--cream);
+        border: 4px solid var(--ink);
+        border-radius: 1rem;
+        padding: 0.6rem 1rem;
+        box-shadow: 0 6px 0 var(--ink);
+        text-align: center;
+        min-width: min(30rem, 90vw);
+      }
+      #course div {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+      #course b {
+        font-size: 1.8rem;
+      }
+      #course button {
+        font: inherit;
+        font-size: 1.4rem;
+        color: var(--cream);
+        background: var(--ink);
+        border: none;
+        border-radius: 0.5rem;
+        padding: 0.3rem 0.7rem;
+        cursor: pointer;
+      }
       #slots {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 13rem));
@@ -333,9 +363,10 @@
     <div id="lobby">
       <h1>Rooftop Scramble</h1>
       <p class="tagline">Run, climb, tackle and rocket your way across town.</p>
+      <div id="course"></div>
       <div id="slots"></div>
       <div class="lobby-help">
-        <div>Press <b>jump</b> to join (up to 4) · <b>item</b> to leave · <kbd>Enter</kbd> / <b>Start</b> to race</div>
+        <div>Press <b>jump</b> to join (up to 4) · <b>item</b> to leave · <b>left</b>/<b>right</b> to pick a course · <kbd>Enter</kbd> / <b>Start</b> to race</div>
         <div id="cpu"></div>
         <div>Run into walls to climb · jump at walls to grab ledges · jump off walls to wall-jump · dive into rivals to tackle</div>
       </div>

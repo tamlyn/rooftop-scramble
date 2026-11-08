@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { World, type SurfaceKind } from '../physics';
-import { SECTION_WIDTH } from '../config';
+import { PLAYER_RADIUS, SECTION_WIDTH } from '../config';
 import { SURFACES, createLevelMaterial, surfaceLayer, type Surface } from './surfaces';
 import { chamferedBox, triangulate } from './chamfer';
 import { createKit, type KitName } from './kit';
@@ -40,12 +40,14 @@ export interface Level {
   world: World;
   group: THREE.Group;
   checkpoints: Checkpoint[];
-  /** routes[i] lists alternative waypoint paths for reaching checkpoint i. Route 0 always stays near street level. */
+  /** routes[i] lists alternative waypoint paths for reaching checkpoint i. Route 0 is the safest, for CPU runners that keep getting stuck. */
   routes: THREE.Vector3[][][];
   itemBoxes: THREE.Vector3[];
   anchors: THREE.Vector3[];
   starts: { pos: THREE.Vector3; heading: number }[];
   carLanes: CarLane[];
+  /** Runners who fall below this are out and respawn at their last checkpoint. */
+  killHeight: number;
   /** Advances animated scenery such as water. */
   animate(time: number): void;
 }
@@ -179,6 +181,7 @@ export class LevelBuilder {
   readonly anchors: THREE.Vector3[] = [];
   readonly starts: { pos: THREE.Vector3; heading: number }[] = [];
   readonly carLanes: CarLane[] = [];
+  killHeight = -1;
   private mesh = new MeshWriter();
   private instances = new Map<KitName, { matrices: THREE.Matrix4[]; colors: THREE.Color[] }>();
   private water = { pos: [] as number[], rect: [] as number[] };
@@ -363,6 +366,20 @@ export class LevelBuilder {
   }
 
   build(): Level {
+    // Gates often sit at the edge of a gap, so respawn on the first solid ground past each one.
+    for (const cp of this.checkpoints) {
+      search: for (let ahead = 2; ahead < 14; ahead += 0.5) {
+        for (const side of [0, 2, -2, 4, -4, 6, -6, 8, -8]) {
+          const p = cp.point.clone().addScaledVector(cp.dir, ahead).addScaledVector(cp.right, side);
+          const ground = this.world.groundBelow(p.x, p.z, cp.point.y + 3, PLAYER_RADIUS);
+          if (ground > this.killHeight) {
+            cp.spawn.copy(p).setY(ground);
+            break search;
+          }
+        }
+      }
+    }
+
     const group = new THREE.Group();
     const solid = new THREE.Mesh(this.mesh.build(), createLevelMaterial());
     solid.castShadow = true;
@@ -390,7 +407,17 @@ export class LevelBuilder {
         mesh.castShadow = kit.castShadow;
         mesh.receiveShadow = true;
         mesh.computeBoundingSphere();
-        group.add(mesh);
+        if (kit.range === Infinity) {
+          group.add(mesh);
+          continue;
+        }
+        // LOD measures from its own position, so centre it on the cell and shift the instances back.
+        const lod = new THREE.LOD();
+        lod.position.copy(mesh.boundingSphere!.center);
+        mesh.position.copy(lod.position).negate();
+        lod.addLevel(mesh, 0);
+        lod.addLevel(new THREE.Object3D(), kit.range + mesh.boundingSphere!.radius);
+        group.add(lod);
       }
     }
 
@@ -424,6 +451,7 @@ export class LevelBuilder {
       anchors: this.anchors,
       starts: this.starts,
       carLanes: this.carLanes,
+      killHeight: this.killHeight,
       animate: (time) => {
         water.time.value = time;
       },
@@ -529,13 +557,18 @@ export class Section {
     this.lb.anchors.push(this.toWorld(x, d, y));
   }
 
-  start(x: number, d: number) {
-    this.lb.starts.push({ pos: this.toWorld(x, d, 0), heading: this.heading });
+  start(x: number, d: number, y = 0) {
+    this.lb.starts.push({ pos: this.toWorld(x, d, y), heading: this.heading });
   }
 
   /** Waypoints as [x, y, d], leading to the next checkpoint declared. */
   route(points: [number, number, number][]) {
     this.lb.pendingRoutes.push(points.map(([x, y, d]) => this.toWorld(x, d, y)));
+  }
+
+  /** Traffic between two points given as [x, d], at street level. */
+  road(from: [number, number], to: [number, number], speed: number, gap: number, color: number) {
+    this.lb.carLanes.push({ from: this.toWorld(...from), to: this.toWorld(...to), speed, gap, color });
   }
 
   carLane(d: number, speed: number, gap: number, color: number, reverse = false) {
@@ -544,21 +577,21 @@ export class Section {
     this.lb.carLanes.push({ from: reverse ? b : a, to: reverse ? a : b, speed, gap, color });
   }
 
-  /** Gate line across the course at distance `d`. Defaults to the section's exit. */
-  checkpoint(d?: number) {
+  /** Gate line across the course at distance `d`. Defaults to the section's exit. Runners respawn on whatever is at height `y`. */
+  checkpoint(d?: number, y = 0) {
     const W = SECTION_WIDTH;
     let point: THREE.Vector3;
     let dir: THREE.Vector3;
     let heading: number;
     if (this.turnDir !== 0 && d === undefined) {
-      point = this.toWorld((-this.turnDir * W) / 2, W / 2);
-      const inward = this.toWorld(-this.turnDir * W, W / 2);
+      point = this.toWorld((-this.turnDir * W) / 2, W / 2, y);
+      const inward = this.toWorld(-this.turnDir * W, W / 2, y);
       dir = inward.sub(point).normalize();
       heading = this.heading + (this.turnDir * Math.PI) / 2;
     } else {
       const at = d ?? this.length;
-      point = this.toWorld(0, at);
-      dir = this.toWorld(0, at + 1).sub(point);
+      point = this.toWorld(0, at, y);
+      dir = this.toWorld(0, at + 1, y).sub(point);
       heading = this.heading;
     }
     const right = new THREE.Vector3(-dir.z, 0, dir.x);

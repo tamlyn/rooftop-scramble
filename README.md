@@ -2,6 +2,12 @@
 
 A silly split-screen parkour racing game built with three.js. Up to four players race across town (with CPU runners filling the grid to six), climbing walls, vaulting barriers, bouncing off market stalls and knocking each other flying.
 
+There are three courses:
+
+- **High Street**: shops, a canal and a building site, with rooftop routes above the road.
+- **Rooftop Run**: entirely on the roofs. The street is out of bounds, so every alley is a jump.
+- **Sky Circuit**: a rainbow obstacle course floating above the clouds.
+
 ```sh
 npm install
 npm run dev
@@ -15,7 +21,7 @@ npm run dev
 | Keyboard 2 | Arrows | / | . | , |
 | Gamepad | Left stick or D-pad (RT also runs) | A | X or B | Y, LB or RB |
 
-In the lobby, press jump to join, item to leave, Enter/Start to race, C to toggle CPU runners. Esc quits a race.
+In the lobby, press jump to join, item to leave, left/right to pick a course, Enter/Start to race, C to toggle CPU runners. Esc quits a race.
 
 ## Moves
 
@@ -32,7 +38,7 @@ Rocket (homes in on the runner ahead), grappling hook (zips you to the yellow ri
 ## Code map
 
 - `src/runner.ts` – movement and parkour simulation (fixed 60 Hz tick, axis-aligned box collision)
-- `src/level/` – section-based level builder and the city layout. Collision is plain boxes; the look is layered on top: one merged, bevelled, vertex-coloured mesh whose faces index a texture array (`surfaces.ts`), instanced architectural pieces such as windows, shopfronts and lamps (`kit.ts`), animated water and painted signs
+- `src/level/` – section-based level builder (`builder.ts`) and the courses (`courses.ts` lists them). Collision is plain boxes; the look is layered on top: one merged, bevelled, vertex-coloured mesh whose faces index a texture array (`surfaces.ts`), instanced architectural pieces such as windows, shopfronts and lamps (`kit.ts`), animated water and painted signs. `town.ts` holds the buildings and street furniture shared by the town courses
 - `src/render.ts` – all split-screen views render into one multisampled target, then screen-space ambient occlusion, bloom, tone mapping, grading and a per-view vignette; also the sky and its image-based lighting
 - `public/textures/` – hand-painted textures, signs and the billboard, generated with Codex image generation and downscaled
 - `src/game.ts` – race rules, contacts, cameras and split-screen layout

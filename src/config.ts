@@ -35,4 +35,3 @@ export const GRAPPLE_RANGE = 45;
 
 export const SECTION_WIDTH = 36;
 export const MAX_RUNNERS = 6;
-export const KILL_HEIGHT = -1;

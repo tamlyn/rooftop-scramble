@@ -22,6 +22,8 @@ interface SurfaceSpec {
   fit: boolean;
   /** Hand-painted texture in public/textures; otherwise painted procedurally below. */
   image?: string;
+  /** Scales the image's variation about its mean; the painted textures are too busy at full strength. */
+  contrast?: number;
 }
 
 const SIZE = 512;
@@ -30,15 +32,15 @@ export const SURFACES: Record<Surface, SurfaceSpec> = {
   plain: { w: 1, h: 1, fit: false },
   windows: { w: 3.5, h: 3.2, fit: true },
   corrugated: { w: 1.6, h: 2.6, fit: true },
-  plaster: { w: 4, h: 4, fit: false, image: 'plaster' },
-  brick: { w: 2.6, h: 2.6, fit: false, image: 'brick' },
-  cobbles: { w: 3.2, h: 3.2, fit: false, image: 'cobbles' },
-  rooftiles: { w: 2.4, h: 2.4, fit: false, image: 'rooftiles' },
-  planks: { w: 1.2, h: 1.2, fit: true, image: 'planks' },
-  stone: { w: 3.4, h: 3.4, fit: false, image: 'stone' },
-  asphalt: { w: 9, h: 9, fit: false, image: 'asphalt' },
-  paving: { w: 3.6, h: 3.6, fit: false, image: 'paving' },
-  grass: { w: 4, h: 4, fit: false, image: 'grass' },
+  plaster: { w: 4, h: 4, fit: false, image: 'plaster', contrast: 0.3 },
+  brick: { w: 1.3, h: 1.3, fit: false, image: 'brick', contrast: 0.45 },
+  cobbles: { w: 1.7, h: 1.7, fit: false, image: 'cobbles', contrast: 0.4 },
+  rooftiles: { w: 2.4, h: 2.4, fit: false, image: 'rooftiles', contrast: 0.8 },
+  planks: { w: 1.2, h: 1.2, fit: true, image: 'planks', contrast: 0.8 },
+  stone: { w: 2.4, h: 2.4, fit: false, image: 'stone', contrast: 0.7 },
+  asphalt: { w: 9, h: 9, fit: false, image: 'asphalt', contrast: 0.35 },
+  paving: { w: 2.6, h: 2.6, fit: false, image: 'paving', contrast: 0.5 },
+  grass: { w: 4, h: 4, fit: false, image: 'grass', contrast: 0.35 },
 };
 
 const ORDER = Object.keys(SURFACES) as Surface[];
@@ -111,7 +113,7 @@ function writeLayer(data: Uint8Array, layer: number, rgb: Uint8ClampedArray, mas
   }
 }
 
-async function loadImageLayer(data: Uint8Array, layer: number, name: string) {
+async function loadImageLayer(data: Uint8Array, layer: number, name: string, contrast = 1) {
   const img = new Image();
   img.src = `${import.meta.env.BASE_URL}textures/${name}.jpg`;
   await img.decode();
@@ -121,8 +123,11 @@ async function loadImageLayer(data: Uint8Array, layer: number, name: string) {
   // Normalise brightness so every texture tints its box colour by about the same amount.
   let sum = 0;
   for (let i = 0; i < rgb.length; i += 4) sum += rgb[i] * 0.3 + rgb[i + 1] * 0.59 + rgb[i + 2] * 0.11;
-  const mean = sum / (rgb.length / 4) / 255;
-  writeLayer(data, layer, rgb, null, 0.9 / mean);
+  const mean = sum / (rgb.length / 4);
+  for (let i = 0; i < rgb.length; i += 4) {
+    for (let c = 0; c < 3; c++) rgb[i + c] = mean + (rgb[i + c] - mean) * contrast;
+  }
+  writeLayer(data, layer, rgb, null, (0.9 * 255) / mean);
 }
 
 /**
@@ -136,7 +141,7 @@ export function createLevelMaterial(): THREE.MeshStandardMaterial {
   ORDER.forEach((name, layer) => {
     const spec = SURFACES[name];
     if (spec.image) {
-      loads.push(loadImageLayer(data, layer, spec.image));
+      loads.push(loadImageLayer(data, layer, spec.image, spec.contrast));
       return;
     }
     const c = canvas('#fff');

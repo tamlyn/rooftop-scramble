@@ -56,6 +56,7 @@ export class Game {
   private accumulator = 0;
   private firstFinish: number | null = null;
   private resultsAge = 0;
+  private resultsShown = 0;
 
   constructor(
     private scene: THREE.Scene,
@@ -143,18 +144,15 @@ export class Game {
 
   private readInputs(dt: number) {
     const racing = this.phase === 'racing';
-    // Results reads the controllers itself; polling here would swallow its button presses.
-    if (this.phase === 'results') {
-      for (const r of this.runners) r.setInput(NO_INPUT);
-      return;
-    }
     for (const h of this.humans) {
-      const controls = h.source.poll();
+      // Results reads the controllers itself; polling here would swallow its button presses.
+      const controls = this.phase === 'results' ? NO_INPUT : h.source.poll();
       h.runner.setInput(racing && !h.runner.finished ? controls : NO_INPUT);
       if (racing && !h.runner.finished && controls.itemPressed) this.items.use(h.runner, this.runners);
     }
+    // CPUs race on behind the results screen so their times can come in.
     for (const [runner, bot] of this.bots) {
-      if (!racing || runner.finished) {
+      if (this.phase === 'countdown' || runner.finished) {
         runner.setInput(NO_INPUT);
         continue;
       }
@@ -247,8 +245,8 @@ export class Game {
 
   private checkFalls() {
     for (const r of this.runners) {
-      if (r.pos.y > C.KILL_HEIGHT) continue;
-      this.fx.burst(r.pos.clone().setY(-1.3), { color: 0xbfe8ff, size: 0.5, count: 12, speed: 4, up: 6, gravity: 15 });
+      if (r.pos.y > this.level.killHeight) continue;
+      this.fx.burst(r.pos.clone().setY(this.level.killHeight), { color: 0xbfe8ff, size: 0.5, count: 12, speed: 4, up: 6, gravity: 15 });
       sfx.splash();
       this.respawn(r);
     }
@@ -256,8 +254,12 @@ export class Game {
 
   private respawn(r: Runner) {
     const cp = this.level.checkpoints[r.nextCheckpoint - 1];
-    const pos = cp.spawn.clone().addScaledVector(cp.right, ((r.index % 3) - 1) * 2.5);
-    pos.y = Math.max(0, this.level.world.groundBelow(pos.x, pos.z, 30, C.PLAYER_RADIUS));
+    const world = this.level.world;
+    const above = cp.spawn.y + 3;
+    let pos = cp.spawn.clone().addScaledVector(cp.right, ((r.index % 3) - 1) * 2.5);
+    // Spread out where there's room; on a narrow ledge everyone shares the middle.
+    if (!(world.groundBelow(pos.x, pos.z, above, C.PLAYER_RADIUS) > cp.spawn.y - 1)) pos = cp.spawn.clone();
+    pos.y = Math.max(cp.spawn.y, world.groundBelow(pos.x, pos.z, above, C.PLAYER_RADIUS));
     r.respawn(pos, cp.heading);
     this.bots.get(r)?.onRespawn();
     this.fx.burst(pos.clone().setY(pos.y + 1), { size: 0.5, count: 10, speed: 3 });
@@ -272,7 +274,7 @@ export class Game {
       const cp = cps[i];
       rel.subVectors(r.pos, cp.point);
       const along = rel.dot(cp.dir);
-      if (along >= 0 && Math.abs(rel.dot(cp.right)) < cp.halfWidth && this.phase === 'racing') {
+      if (along >= 0 && Math.abs(rel.dot(cp.right)) < cp.halfWidth && this.phase !== 'countdown') {
         if (i === cps.length - 1) {
           this.finish(r);
           continue;
@@ -358,7 +360,7 @@ export class Game {
     }
     if (this.phase !== 'results') return;
     this.resultsAge += dt;
-    if (this.resultsAge >= 0 && !this.resultsEl) this.showResults();
+    if (this.resultsAge >= 0) this.showResults();
     // Poll from the start so presses made before the results are readable are drained rather than buffered.
     const presses = this.humans.map((h) => h.source.poll());
     if (this.resultsAge < 1) return;
@@ -369,19 +371,25 @@ export class Game {
     }
   }
 
+  /** Shows the results, redrawing the table whenever another runner finishes. */
   private showResults() {
-    const el = document.createElement('div');
-    el.className = 'results';
+    const finished = this.runners.filter((r) => r.finished).length;
+    if (this.resultsEl && finished === this.resultsShown) return;
+    this.resultsShown = finished;
     const rows = [...this.runners]
       .sort((a, b) => a.place - b.place)
-      .map(
-        (r) =>
-          `<li style="--c:${css(r.color)}"><b>${r.place}</b><span>${r.name}</span><em>${r.finished ? formatTime(r.finishTime!) : 'still running'}</em></li>`,
-      )
+      .map((r) => {
+        // Humans who timed out are frozen, unlike CPUs, which race on.
+        const time = r.finished ? formatTime(r.finishTime!) : r.isBot ? 'still running' : 'did not finish';
+        return `<li style="--c:${css(r.color)}"><b>${r.place}</b><span>${r.name}</span><em>${time}</em></li>`;
+      })
       .join('');
-    el.innerHTML = `<h1>Results</h1><ol>${rows}</ol><p>Jump / Enter to race again · Item to return to the lobby</p>`;
-    this.hudContainer.appendChild(el);
-    this.resultsEl = el;
+    if (!this.resultsEl) {
+      this.resultsEl = document.createElement('div');
+      this.resultsEl.className = 'results';
+      this.hudContainer.appendChild(this.resultsEl);
+    }
+    this.resultsEl.innerHTML = `<h1>Results</h1><ol>${rows}</ol><p>Jump / Enter to race again · Item to return to the lobby</p>`;
   }
 
   render(renderer: THREE.WebGLRenderer, pipeline: Pipeline, sun: THREE.DirectionalLight) {

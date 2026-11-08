@@ -1,87 +1,76 @@
 import * as THREE from 'three';
-import { buildCity } from './level/city';
+import { COURSES } from './level/courses';
+import type { Level } from './level/builder';
 import { Game, PLAYER_COLORS } from './game';
 import { KeyboardSource, GamepadSource, KEYBOARD_SCHEMES, connectedGamepadIndices, type InputSource } from './input';
 import { unlockAudio } from './audio';
 import { MAX_RUNNERS } from './config';
-import { matte } from './materials';
-import { Pipeline, createSky, createEnvironment, NEAR, FAR, SKY_HORIZON, SUN_DIRECTION } from './render';
+import { Pipeline, createSky, createEnvironment, NEAR, FAR, HAZE, SUN_DIRECTION } from './render';
 
 const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.toneMapping = THREE.NeutralToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.12;
 // Each split-screen viewport re-renders the shadow map around its own player instead.
 renderer.shadowMap.autoUpdate = false;
 renderer.autoClear = false;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(SKY_HORIZON, 70, 330);
+// Exponential haze fades distant streets towards pale blue, which is most of what makes the town feel deep.
+scene.fog = new THREE.FogExp2(HAZE, 0.0038);
 scene.add(createSky());
 scene.environment = createEnvironment(renderer);
-scene.environmentIntensity = 0.85;
-// A faint violet fill keeps shadows colourful rather than grey.
-scene.add(new THREE.HemisphereLight(0xb8c8ff, 0x9a80c0, 0.35));
-const sun = new THREE.DirectionalLight(0xfff0d8, 3.2);
+scene.environmentIntensity = 0.7;
+// Cool sky above and warm light bounced off pale stone below, standing in for global illumination.
+scene.add(new THREE.HemisphereLight(0xd2dbe6, 0xd0b28c, 0.45));
+const sun = new THREE.DirectionalLight(0xffe6c4, 3.2);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 180 });
 sun.shadow.bias = -0.0004;
 sun.shadow.normalBias = 0.05;
-sun.shadow.radius = 3;
+sun.shadow.radius = 6;
 sun.shadow.intensity = 0.85;
 scene.add(sun, sun.target);
 const pipeline = new Pipeline(renderer);
 
-const level = buildCity();
-scene.add(level.group);
-addClouds(scene);
+const builtCourses = new Map<number, Level>();
+let courseIndex = 0;
+let level = loadCourse(0);
 
-function addClouds(target: THREE.Scene) {
-  const mat = matte(0xffffff, { emissive: 0x8a8aa8, roughness: 1 });
-  // Flat-bottomed puffs read as cartoon cumulus rather than floating balls.
-  const geom = new THREE.IcosahedronGeometry(1, 2);
-  const pos = geom.attributes.position;
-  for (let i = 0; i < pos.count; i++) pos.setY(i, Math.max(pos.getY(i), -0.25));
-  geom.computeVertexNormals();
-  const min = new THREE.Vector3(Infinity, 0, Infinity);
-  const max = new THREE.Vector3(-Infinity, 0, -Infinity);
-  for (const cp of level.checkpoints) {
-    min.min(cp.point);
-    max.max(cp.point);
+function loadCourse(index: number): Level {
+  let built = builtCourses.get(index);
+  if (!built) {
+    built = COURSES[index].build();
+    builtCourses.set(index, built);
   }
-  for (let i = 0; i < 40; i++) {
-    const cloud = new THREE.Group();
-    const n = 3 + Math.floor(Math.random() * 4);
-    for (let j = 0; j < n; j++) {
-      const puff = new THREE.Mesh(geom, mat);
-      const size = 2.5 + Math.random() * 2 + (j > 0 && j < n - 1 ? 1.5 : 0);
-      puff.position.set(j * 3 - n * 1.5, size * 0.25, (Math.random() - 0.5) * 3);
-      puff.scale.setScalar(size);
-      cloud.add(puff);
-    }
-    cloud.position.set(
-      min.x - 80 + Math.random() * (max.x - min.x + 160),
-      45 + Math.random() * 30,
-      min.z - 80 + Math.random() * (max.z - min.z + 160),
-    );
-    target.add(cloud);
-  }
+  scene.add(built.group);
+  return built;
+}
+
+function selectCourse(step: number) {
+  scene.remove(level.group);
+  courseIndex = (courseIndex + step + COURSES.length) % COURSES.length;
+  level = loadCourse(courseIndex);
+  renderLobby();
 }
 
 const hudRoot = document.getElementById('hud')!;
 const lobbyEl = document.getElementById('lobby')!;
 const slotsEl = document.getElementById('slots')!;
 const cpuEl = document.getElementById('cpu')!;
+const courseEl = document.getElementById('course')!;
 
 const keyboardSources: InputSource[] = [new KeyboardSource('wasd'), new KeyboardSource('arrows')];
 const gamepadSources = new Map<number, InputSource>();
 let joined: InputSource[] = [];
 let cpus = true;
 let game: Game | null = null;
+/** Last stick direction per source, so holding a direction in the lobby flips one course at a time. */
+const lobbySteer = new Map<InputSource, number>();
 
 function availableSources(): InputSource[] {
   for (const i of connectedGamepadIndices()) {
@@ -104,14 +93,24 @@ function renderLobby() {
       return `<div class="slot" style="--c:${color}"><b>P${i + 1}</b><span>${s.label}</span><small>${controls}</small></div>`;
     })
     .join('');
+  const course = COURSES[courseIndex];
+  courseEl.innerHTML = `<button data-step="-1">◀</button><div><b>${course.name}</b><small>${course.blurb}</small></div><button data-step="1">▶</button>`;
   const cpuCount = cpus ? MAX_RUNNERS - joined.length : 0;
   cpuEl.textContent = cpus ? `${cpuCount} CPU runner${cpuCount === 1 ? '' : 's'} (C to toggle)` : 'No CPU runners (C to toggle)';
 }
+
+courseEl.addEventListener('click', (e) => {
+  const step = (e.target as HTMLElement).closest('button')?.dataset.step;
+  if (step) selectCourse(Number(step));
+});
 
 function updateLobby() {
   let changed = false;
   for (const s of availableSources()) {
     const c = s.poll();
+    const steer = c.x > 0.5 ? 1 : c.x < -0.5 ? -1 : 0;
+    if (steer !== 0 && steer !== lobbySteer.get(s)) selectCourse(steer);
+    lobbySteer.set(s, steer);
     const isIn = joined.includes(s);
     if (c.jumpPressed && !isIn && joined.length < 4) {
       joined.push(s);
@@ -164,11 +163,11 @@ function renderLobbyScene(time: number) {
   // Drift slowly up the high street, above the rooftops.
   const start = level.starts[0];
   const z = start.pos.z + 6 - ((time * 3) % 70);
-  lobbyCamera.position.set(start.pos.x + Math.sin(time * 0.2) * 4, 15, z);
-  lobbyCamera.lookAt(start.pos.x, 4, z - 30);
+  lobbyCamera.position.set(start.pos.x + Math.sin(time * 0.2) * 4, start.pos.y + 15, z);
+  lobbyCamera.lookAt(start.pos.x, start.pos.y + 4, z - 30);
   lobbyCamera.aspect = innerWidth / innerHeight;
   lobbyCamera.updateProjectionMatrix();
-  const focus = new THREE.Vector3(start.pos.x, 0, z - 20);
+  const focus = new THREE.Vector3(start.pos.x, start.pos.y, z - 20);
   sun.position.copy(focus).addScaledVector(SUN_DIRECTION, 70);
   sun.target.position.copy(focus);
   sun.target.updateMatrixWorld();
@@ -200,7 +199,7 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
-if (import.meta.env.DEV) Object.assign(window, { debug: { level, get game() { return game; } } });
+if (import.meta.env.DEV) Object.assign(window, { debug: { renderer, get level() { return level; }, get game() { return game; }, selectCourse } });
 
 showLobby();
 frame();

@@ -234,7 +234,7 @@ function chimney(): THREE.BufferGeometry {
 
 let glassTextures: { window: THREE.Texture; shop: THREE.Texture } | null = null;
 
-/** Painted interiors so glass reads as rooms behind windows rather than flat blue panels. */
+/** Painted interiors under a painted sky reflection, so glass reads as windows rather than flat panels. */
 function paintGlass(): { window: THREE.Texture; shop: THREE.Texture } {
   if (glassTextures) return glassTextures;
   const make = (w: number, h: number, paint: (g: CanvasRenderingContext2D) => void) => {
@@ -250,21 +250,21 @@ function paintGlass(): { window: THREE.Texture; shop: THREE.Texture } {
   };
   const room = (g: CanvasRenderingContext2D, w: number, h: number) => {
     const grad = g.createLinearGradient(0, 0, 0, h);
-    grad.addColorStop(0, '#24305a');
-    grad.addColorStop(0.6, '#3d5687');
-    grad.addColorStop(1, '#5a77a8');
+    grad.addColorStop(0, '#2a3246');
+    grad.addColorStop(0.6, '#3e4c62');
+    grad.addColorStop(1, '#56657a');
     g.fillStyle = grad;
     g.fillRect(0, 0, w, h);
   };
   const glints = (g: CanvasRenderingContext2D, w: number, h: number) => {
-    g.fillStyle = 'rgba(220,240,255,0.35)';
+    g.fillStyle = 'rgba(220,240,255,0.16)';
     g.beginPath();
     g.moveTo(w * 0.1, h);
     g.lineTo(w * 0.55, 0);
     g.lineTo(w * 0.75, 0);
     g.lineTo(w * 0.3, h);
     g.fill();
-    g.fillStyle = 'rgba(220,240,255,0.2)';
+    g.fillStyle = 'rgba(220,240,255,0.08)';
     g.beginPath();
     g.moveTo(w * 0.4, h);
     g.lineTo(w * 0.85, 0);
@@ -272,36 +272,36 @@ function paintGlass(): { window: THREE.Texture; shop: THREE.Texture } {
     g.lineTo(w * 0.45, h);
     g.fill();
   };
+  // Sky caught in the upper glass; the room only shows through lower down, as it does from the street.
+  const reflection = (g: CanvasRenderingContext2D, w: number, h: number) => {
+    const grad = g.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, 'rgba(170,200,228,0.75)');
+    grad.addColorStop(0.55, 'rgba(140,172,205,0.3)');
+    grad.addColorStop(1, 'rgba(120,150,190,0.1)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, h);
+  };
   const window = make(128, 192, (g) => {
     room(g, 128, 192);
-    // Curtains gathered at each side; the instance colour tints them per window.
+    // Net curtains drawn to each side; the instance colour tints them per window.
+    g.fillStyle = 'rgba(222,212,196,0.8)';
     for (const side of [0, 1]) {
       const x0 = side ? 128 : 0;
       const dir = side ? -1 : 1;
-      g.fillStyle = '#f4ead8';
       g.beginPath();
       g.moveTo(x0, 0);
-      g.lineTo(x0 + dir * 46, 0);
-      g.quadraticCurveTo(x0 + dir * 20, 100, x0 + dir * 34, 192);
+      g.lineTo(x0 + dir * 26, 0);
+      g.quadraticCurveTo(x0 + dir * 12, 100, x0 + dir * 20, 192);
       g.lineTo(x0, 192);
       g.fill();
-      g.strokeStyle = 'rgba(160,130,110,0.5)';
-      g.lineWidth = 3;
-      for (const f of [12, 24]) {
-        g.beginPath();
-        g.moveTo(x0 + dir * f, 0);
-        g.quadraticCurveTo(x0 + dir * (f * 0.5), 100, x0 + dir * (f * 0.7), 192);
-        g.stroke();
-      }
     }
-    g.fillStyle = '#f4ead8';
-    g.fillRect(0, 0, 128, 14);
+    reflection(g, 128, 192);
     glints(g, 128, 192);
   });
   const shop = make(256, 192, (g) => {
     room(g, 256, 192);
-    // Shelves of colourful goods.
-    const goods = ['#ff8a7a', '#ffd86b', '#7fdcc0', '#c3a6f0', '#ffb38a', '#7cc4ff'];
+    // Shelves of goods, muted so the shopfront paint stays the accent.
+    const goods = ['#c98a6a', '#d9b870', '#8fb3a0', '#a99cbf', '#d4a382', '#8aa9c4'];
     for (let row = 0; row < 3; row++) {
       const y = 40 + row * 48;
       g.fillStyle = '#7a5a48';
@@ -312,6 +312,7 @@ function paintGlass(): { window: THREE.Texture; shop: THREE.Texture } {
         g.fillRect(x, y + 30 - hh, 12, hh);
       }
     }
+    reflection(g, 256, 192);
     glints(g, 256, 192);
   });
   glassTextures = { window, shop };
@@ -343,50 +344,64 @@ export interface Kit {
   geometry: THREE.BufferGeometry;
   material: THREE.Material;
   castShadow: boolean;
+  /** Distance beyond which the piece is too small to notice and isn't drawn. */
+  range: number;
 }
 
+// Fine trim adds up to millions of triangles across a whole town but is sub-pixel a few streets away.
+const FINE = 60;
+const SMALL = 90;
+// Beyond this the glass panes alone still read as windows.
+const FRAMES = 130;
+
 const painted = () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8 });
-const glass = (map: THREE.Texture) => new THREE.MeshStandardMaterial({ map, roughness: 0.1, metalness: 0.1 });
+// A higher index of refraction than real glass makes the panes mirror the sky, as stylised windows do.
+const glass = (map: THREE.Texture) => new THREE.MeshPhysicalMaterial({ map, roughness: 0.12, metalness: 0, ior: 1.8, envMapIntensity: 1.3 });
 
 export function createKit(name: KitName): Kit {
-  const kit = (geometry: THREE.BufferGeometry, castShadow = false, material: THREE.Material = painted()): Kit => ({ geometry, material, castShadow });
+  const kit = (geometry: THREE.BufferGeometry, castShadow = false, material: THREE.Material = painted(), range = Infinity): Kit => ({
+    geometry,
+    material,
+    castShadow,
+    range,
+  });
   switch (name) {
     case 'windowFrame':
-      return kit(windowFrame());
+      return kit(windowFrame(), false, painted(), FRAMES);
     case 'windowGlass':
       return kit(new THREE.PlaneGeometry(WINDOW_W, WINDOW_H).translate(0, 0, 0.015), false, glass(paintGlass().window));
     case 'windowTrim':
-      return kit(windowTrim(), true);
+      return kit(windowTrim(), true, painted(), SMALL);
     case 'shutters':
-      return kit(shutters());
+      return kit(shutters(), false, painted(), SMALL);
     case 'flowerBox':
-      return kit(flowerBox(), true);
+      return kit(flowerBox(), true, painted(), FINE);
     case 'balcony':
-      return kit(balcony(), true);
+      return kit(balcony(), true, painted(), SMALL);
     case 'shopFrame':
-      return kit(shopFrame());
+      return kit(shopFrame(), false, painted(), FRAMES);
     case 'shopGlass':
       return kit(new THREE.PlaneGeometry(SHOP_W, SHOP_H).translate(0, 0, 0.015), false, glass(paintGlass().shop));
     case 'door':
-      return kit(door());
+      return kit(door(), false, painted(), FRAMES);
     case 'doorFrame':
-      return kit(doorFrame());
+      return kit(doorFrame(), false, painted(), FRAMES);
     case 'pilaster':
-      return kit(pilaster());
+      return kit(pilaster(), false, painted(), FRAMES);
     case 'lampPost':
       return kit(lampPost(), true);
     case 'lampGlass':
       return kit(lampGlass(), false, new THREE.MeshStandardMaterial({ color: 0xfff2c0, emissive: 0xffc96b, emissiveIntensity: 2.2 }));
     case 'bench':
-      return kit(bench(), true);
+      return kit(bench(), true, painted(), SMALL);
     case 'bollard':
-      return kit(bollard(), true);
+      return kit(bollard(), true, painted(), SMALL);
     case 'hydrant':
-      return kit(hydrant(), true);
+      return kit(hydrant(), true, painted(), SMALL);
     case 'quoin':
-      return kit(quoin());
+      return kit(quoin(), false, painted(), FINE);
     case 'dentil':
-      return kit(dentil());
+      return kit(dentil(), false, painted(), FINE);
     case 'chimney':
       return kit(chimney(), true);
   }
