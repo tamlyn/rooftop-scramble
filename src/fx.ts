@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { toon } from './toon';
+import { matte } from './materials';
 
 interface Puff {
   mesh: THREE.Mesh;
@@ -15,7 +15,7 @@ const materials = new Map<number, THREE.Material>();
 function material(color: number) {
   let m = materials.get(color);
   if (!m) {
-    m = toon(color);
+    m = matte(color, { roughness: 1 });
     materials.set(color, m);
   }
   return m;

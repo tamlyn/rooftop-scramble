@@ -1,14 +1,19 @@
 import * as THREE from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { World, type SurfaceKind } from '../physics';
 import { SECTION_WIDTH } from '../config';
-import { toonGradient } from '../toon';
+import { SURFACES, createLevelMaterial, surfaceLayer, type Surface } from './surfaces';
+import { chamferedBox, triangulate } from './chamfer';
+import { createKit, type KitName } from './kit';
 
 export interface Style {
   color: number;
   top?: number;
-  windows?: boolean;
-  outline?: boolean;
+  /** Painted surface on the four side faces. */
+  sides?: Surface;
+  /** Painted surface on the top face. */
+  topSurface?: Surface;
+  /** Chamfered edges. Off for ground slabs, which would show seams between neighbours. */
+  bevel?: boolean;
   kind?: SurfaceKind;
   collide?: boolean;
   hidden?: boolean;
@@ -41,73 +46,128 @@ export interface Level {
   anchors: THREE.Vector3[];
   starts: { pos: THREE.Vector3; heading: number }[];
   carLanes: CarLane[];
+  /** Advances animated scenery such as water. */
+  animate(time: number): void;
 }
 
-const WINDOW_PERIOD_X = 3.5;
-const WINDOW_PERIOD_Y = 3.2;
-const OUTLINE = 0.07;
-const PLAIN_UV = 0.01;
+const MAX_BEVEL = 0.14;
+const CELL = 48;
+const UP = new THREE.Vector3(0, 1, 0);
+const WHITE = new THREE.Color(0xffffff);
+export const SIGNS = ['bakery', 'barber', 'chippy', 'pets', 'cafe', 'grocer', 'bikes', 'fries'].map((name) => `sign-${name}`);
 
-let windowTexture: THREE.Texture | null = null;
-function getWindowTexture(): THREE.Texture {
-  if (windowTexture) return windowTexture;
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d')!;
-  g.fillStyle = '#ffffff';
-  g.fillRect(0, 0, 128, 128);
-  g.fillStyle = '#4d5f8c';
-  g.fillRect(30, 30, 68, 68);
-  g.fillStyle = '#8fb3e0';
-  g.fillRect(30, 30, 68, 18);
-  g.fillStyle = '#e6e1d6';
-  g.fillRect(24, 98, 80, 8);
-  windowTexture = new THREE.CanvasTexture(c);
-  windowTexture.wrapS = windowTexture.wrapT = THREE.RepeatWrapping;
-  windowTexture.colorSpace = THREE.SRGBColorSpace;
-  windowTexture.anisotropy = 4;
-  return windowTexture;
+/** Walls darken towards the ground, a cheap stand-in for large-scale ambient occlusion. */
+function heightShade(y: number): number {
+  return 0.72 + 0.28 * THREE.MathUtils.clamp(y / 9, 0, 1);
 }
 
-function colorize(geom: THREE.BufferGeometry, color: THREE.Color, topColor?: THREE.Color) {
-  const count = geom.attributes.position.count;
-  const colors = new Float32Array(count * 3);
-  const normals = geom.attributes.normal;
-  for (let i = 0; i < count; i++) {
-    const c = topColor && normals.getY(i) > 0.9 ? topColor : color;
-    colors.set([c.r, c.g, c.b], i * 3);
+/** Accumulates every static triangle of the level into one vertex-coloured, texture-array-mapped mesh. */
+class MeshWriter {
+  private pos: number[] = [];
+  private nrm: number[] = [];
+  private col: number[] = [];
+  private surf: number[] = [];
+
+  vertex(p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color, u: number, v: number, layer: number, shaded: boolean) {
+    const k = shaded ? heightShade(p.y) : 1;
+    this.pos.push(p.x, p.y, p.z);
+    this.nrm.push(n.x, n.y, n.z);
+    this.col.push(c.r * k, c.g * k, c.b * k);
+    this.surf.push(u, v, layer);
   }
-  geom.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-}
 
-function plainUVs(geom: THREE.BufferGeometry) {
-  const uv = geom.attributes.uv;
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, PLAIN_UV, PLAIN_UV);
-}
+  poly(pts: THREE.Vector3[], uvs: [number, number][], n: THREE.Vector3, c: THREE.Color, layer: number, shaded: boolean) {
+    for (const i of triangulate(pts, n)) this.vertex(pts[i], n, c, uvs[i][0], uvs[i][1], layer, shaded);
+  }
 
-/** Tile whole windows across each side face; top and bottom stay plain. */
-function windowUVs(geom: THREE.BufferGeometry, sx: number, sy: number, sz: number) {
-  const uv = geom.attributes.uv;
-  const tiles = (len: number, period: number) => Math.max(1, Math.round(len / period));
-  // BoxGeometry face order: +x, -x, +y, -y, +z, -z with four vertices each.
-  const faces: [number, number][] = [
-    [tiles(sz, WINDOW_PERIOD_X), tiles(sy, WINDOW_PERIOD_Y)],
-    [tiles(sz, WINDOW_PERIOD_X), tiles(sy, WINDOW_PERIOD_Y)],
-    [0, 0],
-    [0, 0],
-    [tiles(sx, WINDOW_PERIOD_X), tiles(sy, WINDOW_PERIOD_Y)],
-    [tiles(sx, WINDOW_PERIOD_X), tiles(sy, WINDOW_PERIOD_Y)],
-  ];
-  for (let f = 0; f < 6; f++) {
-    const [tu, tv] = faces[f];
-    const faceLen = f < 2 ? sz : f < 4 ? sx : sx;
-    const faceTooSmall = faceLen < 2 || sy < 2.5;
-    for (let v = 0; v < 4; v++) {
-      const i = f * 4 + v;
-      if (tu === 0 || faceTooSmall) uv.setXY(i, PLAIN_UV, PLAIN_UV);
-      else uv.setXY(i, uv.getX(i) * tu, uv.getY(i) * tv);
+  /** Decorative geometry; an existing colour attribute (baked gradients, say) is multiplied by `c`. */
+  geometry(geom: THREE.BufferGeometry, c: THREE.Color) {
+    const g = geom.index ? geom.toNonIndexed() : geom;
+    const p = g.attributes.position;
+    const n = g.attributes.normal;
+    const baked = g.attributes.color;
+    const v = new THREE.Vector3();
+    const nv = new THREE.Vector3();
+    const vc = new THREE.Color();
+    for (let i = 0; i < p.count; i++) {
+      if (baked) vc.fromBufferAttribute(baked, i).multiply(c);
+      else vc.copy(c);
+      this.vertex(v.fromBufferAttribute(p, i), nv.fromBufferAttribute(n, i), vc, 0.5, 0.5, 0, false);
     }
   }
+
+  build(): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.pos, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(this.nrm, 3));
+    g.setAttribute('color', new THREE.Float32BufferAttribute(this.col, 3));
+    g.setAttribute('surface', new THREE.Float32BufferAttribute(this.surf, 3));
+    g.computeBoundingSphere();
+    return g;
+  }
+}
+
+/** Texture coordinates for a point on a box face, either fitted to whole tiles or tiled in world space. */
+function faceUV(surface: Surface, p: THREE.Vector3, n: THREE.Vector3, min: THREE.Vector3, max: THREE.Vector3): [number, number] {
+  const spec = SURFACES[surface];
+  if (Math.abs(n.y) > 0.5) {
+    if (!spec.fit) return [p.x / spec.w, p.z / spec.h];
+    const sx = max.x - min.x;
+    const sz = max.z - min.z;
+    return [((p.x - min.x) / sx) * Math.max(1, Math.round(sx / spec.w)), ((p.z - min.z) / sz) * Math.max(1, Math.round(sz / spec.h))];
+  }
+  // Horizontal axis runs left-to-right as seen from outside the face.
+  const right = new THREE.Vector3().crossVectors(UP, n);
+  const along = p.dot(right);
+  if (!spec.fit) return [along / spec.w, p.y / spec.h];
+  const lo = Math.min(min.dot(right), max.dot(right));
+  const len = Math.abs(max.dot(right) - min.dot(right));
+  const sy = max.y - min.y;
+  return [((along - lo) / len) * Math.max(1, Math.round(len / spec.w)), ((p.y - min.y) / sy) * Math.max(1, Math.round(sy / spec.h))];
+}
+
+/** Fitted surfaces need room for at least most of one tile, otherwise a window gets squashed onto a kerb. */
+function fits(surface: Surface, faceWidth: number, faceHeight: number): boolean {
+  const spec = SURFACES[surface];
+  return !spec.fit || (faceWidth >= spec.w * 0.6 && faceHeight >= spec.h * 0.75);
+}
+
+function waterMaterial(): { material: THREE.MeshStandardMaterial; time: THREE.IUniform<number> } {
+  const time = { value: 0 };
+  const material = new THREE.MeshStandardMaterial({ color: 0x3fb2e0, roughness: 0.08, metalness: 0 });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.time = time;
+    shader.uniforms.deep = { value: new THREE.Color(0x1f86c2) };
+    shader.uniforms.shallow = { value: new THREE.Color(0x63d6e6) };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 rect;\nvarying vec4 vRect;\nvarying vec3 vWaterWorld;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvRect = rect;\nvWaterWorld = (modelMatrix * vec4(position, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nuniform float time;\nuniform vec3 deep;\nuniform vec3 shallow;\nvarying vec4 vRect;\nvarying vec3 vWaterWorld;')
+      .replace(
+        '#include <color_fragment>',
+        `vec3 w = vWaterWorld;
+        float edge = min(min(vRect.x, vRect.z - vRect.x), min(vRect.y, vRect.w - vRect.y));
+        float wobble = sin(w.x * 2.1 + time * 1.3) * 0.1 + sin(w.z * 1.7 - time * 1.1) * 0.1;
+        float foam = 1.0 - smoothstep(0.2, 0.55, edge + wobble);
+        float ripple = sin(w.x * 0.9 + sin(w.z * 0.7 + time * 0.8) * 1.5 + time * 0.6) * sin(w.z * 1.3 - time * 0.5 + sin(w.x * 0.5));
+        diffuseColor.rgb = mix(deep, shallow, smoothstep(3.0, 0.4, edge));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.8, 0.95, 1.0), smoothstep(0.7, 0.95, ripple) * 0.6);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(1.0), foam);`,
+      );
+  };
+  material.customProgramCacheKey = () => 'water';
+  return { material, time };
+}
+
+const posterLoader = new THREE.TextureLoader();
+
+/** Hand-painted artwork (shop signs, billboards) from public/textures. */
+function posterMaterial(image: string): THREE.MeshStandardMaterial {
+  const map = posterLoader.load(`${import.meta.env.BASE_URL}textures/${image}.jpg`);
+  map.colorSpace = THREE.SRGBColorSpace;
+  map.anisotropy = 8;
+  return new THREE.MeshStandardMaterial({ map, roughness: 0.6 });
 }
 
 export class LevelBuilder {
@@ -119,50 +179,170 @@ export class LevelBuilder {
   readonly anchors: THREE.Vector3[] = [];
   readonly starts: { pos: THREE.Vector3; heading: number }[] = [];
   readonly carLanes: CarLane[] = [];
-  private solidGeoms: THREE.BufferGeometry[] = [];
-  private outlineGeoms: THREE.BufferGeometry[] = [];
+  private mesh = new MeshWriter();
+  private instances = new Map<KitName, { matrices: THREE.Matrix4[]; colors: THREE.Color[] }>();
+  private water = { pos: [] as number[], rect: [] as number[] };
+  private posters = new Map<string, { pos: number[]; uv: number[] }>();
   private cursor = { x: 0, z: 0, turns: 0 };
 
   addBox(min: THREE.Vector3, max: THREE.Vector3, style: Style) {
-    const sx = max.x - min.x;
-    const sy = max.y - min.y;
-    const sz = max.z - min.z;
-    if (sx <= 0 || sy <= 0 || sz <= 0) return;
-    const cx = (min.x + max.x) / 2;
-    const cy = (min.y + max.y) / 2;
-    const cz = (min.z + max.z) / 2;
+    const size = new THREE.Vector3().subVectors(max, min);
+    if (size.x <= 0 || size.y <= 0 || size.z <= 0) return;
     if (style.collide !== false) this.world.add(min.clone(), max.clone(), style.kind ?? 'solid');
     if (style.hidden) return;
 
-    const geom = new THREE.BoxGeometry(sx, sy, sz);
-    colorize(geom, new THREE.Color(style.color), style.top !== undefined ? new THREE.Color(style.top) : undefined);
-    if (style.windows) windowUVs(geom, sx, sy, sz);
-    else plainUVs(geom);
-    geom.translate(cx, cy, cz);
-    this.solidGeoms.push(geom);
-
-    if (style.outline !== false) {
-      const hull = new THREE.BoxGeometry(sx + OUTLINE * 2, sy + OUTLINE * 2, sz + OUTLINE * 2);
-      hull.translate(cx, cy, cz);
-      this.outlineGeoms.push(stripToPosition(hull));
-    }
+    const side = new THREE.Color(style.color);
+    const top = new THREE.Color(style.top ?? style.color);
+    // Chamfers catch the light like worn, painted edges.
+    const edge = side.clone().lerp(WHITE, 0.2);
+    const bevel = style.bevel === false ? 0 : Math.min(MAX_BEVEL, Math.min(size.x, size.y, size.z) * 0.2);
+    const centre = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+    const plain: [number, number][] = [
+      [0.5, 0.5],
+      [0.5, 0.5],
+      [0.5, 0.5],
+      [0.5, 0.5],
+    ];
+    chamferedBox(size.clone().multiplyScalar(0.5), bevel, (local, n, face) => {
+      const pts = local.map((p) => p.add(centre));
+      if (!face) {
+        this.mesh.poly(pts, plain, n, edge, 0, true);
+        return;
+      }
+      const isTop = face.axis === 1 && face.sign > 0;
+      const vertical = face.axis !== 1;
+      let surface: Surface = (isTop ? style.topSurface : vertical ? style.sides : undefined) ?? 'plain';
+      const faceWidth = face.axis === 0 ? size.z : size.x;
+      if (vertical && !fits(surface, faceWidth, size.y)) surface = 'plain';
+      const uvs = pts.map((p) => faceUV(surface, p, n, min, max));
+      this.mesh.poly(pts, uvs, n, isTop ? top : side, surfaceLayer(surface), vertical);
+    });
   }
 
   /** Arbitrary decorative geometry, already positioned in world space. Never collides. */
-  addDecor(geom: THREE.BufferGeometry, color: number, outline = true) {
-    const g = geom.index ? geom.toNonIndexed() : geom;
-    if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
-    colorize(g, new THREE.Color(color));
-    plainUVs(g);
-    this.solidGeoms.push(g);
-    if (outline) {
-      const hull = stripToPosition(g.clone());
-      const pos = hull.attributes.position;
-      const nrm = g.attributes.normal;
-      for (let i = 0; i < pos.count; i++) {
-        pos.setXYZ(i, pos.getX(i) + nrm.getX(i) * OUTLINE, pos.getY(i) + nrm.getY(i) * OUTLINE, pos.getZ(i) + nrm.getZ(i) * OUTLINE);
+  addDecor(geom: THREE.BufferGeometry, color: number) {
+    this.mesh.geometry(geom, new THREE.Color(color));
+  }
+
+  /** One copy of a kit piece, turned to face `yaw` (0 faces +z). */
+  addInstance(kind: KitName, position: THREE.Vector3, yaw: number, color: number, scale = new THREE.Vector3(1, 1, 1)) {
+    let list = this.instances.get(kind);
+    if (!list) {
+      list = { matrices: [], colors: [] };
+      this.instances.set(kind, list);
+    }
+    const q = new THREE.Quaternion().setFromAxisAngle(UP, yaw);
+    list.matrices.push(new THREE.Matrix4().compose(position, q, scale));
+    list.colors.push(new THREE.Color(color));
+  }
+
+  /** A water surface over a rectangle at height `y`; foam gathers along its edges. */
+  addWater(min: THREE.Vector3, max: THREE.Vector3, y: number) {
+    const sx = max.x - min.x;
+    const sz = max.z - min.z;
+    const corners: [number, number][] = [
+      [0, 0],
+      [sx, sz],
+      [sx, 0],
+      [0, 0],
+      [0, sz],
+      [sx, sz],
+    ];
+    for (const [lx, lz] of corners) {
+      this.water.pos.push(min.x + lx, y, min.z + lz);
+      this.water.rect.push(lx, lz, sx, sz);
+    }
+  }
+
+  /**
+   * A pitched roof over a footprint, ridge running along x or z, with overhanging tiled slopes, painted
+   * fascia boards and plastered gable ends.
+   */
+  addGableRoof(min: THREE.Vector3, max: THREE.Vector3, ridgeAlongX: boolean, rise: number, roofColor: number, gableColor: number) {
+    const overhang = 0.5;
+    const thick = 0.2;
+    const [a0, a1] = ridgeAlongX ? [min.x, max.x] : [min.z, max.z];
+    const [b0, b1] = ridgeAlongX ? [min.z, max.z] : [min.x, max.x];
+    const P = (a: number, b: number, y: number) => (ridgeAlongX ? new THREE.Vector3(a, y, b) : new THREE.Vector3(b, y, a));
+    const dirA = ridgeAlongX ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 0, 1);
+    const dirB = ridgeAlongX ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(1, 0, 0);
+    const half = (b1 - b0) / 2;
+    const mid = (b0 + b1) / 2;
+    const slope = rise / half;
+    const y0 = min.y;
+    const ridge = y0 + rise;
+    const eaveY = y0 - overhang * slope;
+    const roof = new THREE.Color(roofColor);
+    const trim = new THREE.Color(0xf3ead8);
+    const gable = new THREE.Color(gableColor);
+    const tiles = surfaceLayer('rooftiles');
+    const tile = SURFACES.rooftiles;
+    const slopeLen = Math.hypot(half + overhang, rise + overhang * slope);
+    const plain: [number, number][] = [
+      [0.5, 0.5],
+      [0.5, 0.5],
+      [0.5, 0.5],
+      [0.5, 0.5],
+    ];
+
+    for (const side of [-1, 1]) {
+      const eaveB = side < 0 ? b0 - overhang : b1 + overhang;
+      const n = dirB
+        .clone()
+        .multiplyScalar(side * rise)
+        .addScaledVector(UP, half)
+        .normalize();
+      const slopePts = [P(a0 - overhang, eaveB, eaveY), P(a1 + overhang, eaveB, eaveY), P(a1 + overhang, mid, ridge), P(a0 - overhang, mid, ridge)];
+      const uvs: [number, number][] = [
+        [(a0 - overhang) / tile.w, 0],
+        [(a1 + overhang) / tile.w, 0],
+        [(a1 + overhang) / tile.w, slopeLen / tile.h],
+        [(a0 - overhang) / tile.w, slopeLen / tile.h],
+      ];
+      this.mesh.poly(slopePts, uvs, n, roof, tiles, false);
+      const below = slopePts.map((p) => p.clone().setY(p.y - thick));
+      this.mesh.poly([below[0], below[1], slopePts[1], slopePts[0]], plain, dirB.clone().multiplyScalar(side), trim, 0, false);
+      this.mesh.poly(below, plain, n.clone().negate(), gable.clone().multiplyScalar(0.7), 0, false);
+      for (const [end, a] of [
+        [-1, a0 - overhang],
+        [1, a1 + overhang],
+      ]) {
+        const pts = [P(a, eaveB, eaveY), P(a, mid, ridge), P(a, mid, ridge - thick), P(a, eaveB, eaveY - thick)];
+        this.mesh.poly(pts, plain, dirA.clone().multiplyScalar(end), trim, 0, false);
       }
-      this.outlineGeoms.push(hull);
+    }
+    const plaster = surfaceLayer('plaster');
+    for (const [end, a] of [
+      [-1, a0],
+      [1, a1],
+    ]) {
+      const pts = [P(a, b0, y0), P(a, b1, y0), P(a, mid, ridge)];
+      const n = dirA.clone().multiplyScalar(end);
+      const uvs = pts.map((p) => faceUV('plaster', p, n, min, max));
+      this.mesh.poly(pts, uvs, n, gable, plaster, false);
+    }
+  }
+
+  /** A quad of painted artwork facing `yaw`. */
+  addPoster(image: string, centre: THREE.Vector3, yaw: number, width: number, height: number) {
+    let poster = this.posters.get(image);
+    if (!poster) {
+      poster = { pos: [], uv: [] };
+      this.posters.set(image, poster);
+    }
+    const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
+    const corner = (sx: number, sy: number) => centre.clone().addScaledVector(right, (sx * width) / 2).setY(centre.y + (sy * height) / 2);
+    const quad: [THREE.Vector3, number, number][] = [
+      [corner(-1, -1), 0, 0],
+      [corner(1, -1), 1, 0],
+      [corner(1, 1), 1, 1],
+      [corner(-1, -1), 0, 0],
+      [corner(1, 1), 1, 1],
+      [corner(-1, 1), 0, 1],
+    ];
+    for (const [p, u, v] of quad) {
+      poster.pos.push(p.x, p.y, p.z);
+      poster.uv.push(u, v);
     }
   }
 
@@ -184,18 +364,57 @@ export class LevelBuilder {
 
   build(): Level {
     const group = new THREE.Group();
-    const solid = new THREE.Mesh(
-      mergeGeometries(this.solidGeoms.map((g) => (g.index ? g.toNonIndexed() : g))),
-      new THREE.MeshToonMaterial({ vertexColors: true, map: getWindowTexture(), gradientMap: toonGradient() }),
-    );
+    const solid = new THREE.Mesh(this.mesh.build(), createLevelMaterial());
     solid.castShadow = true;
     solid.receiveShadow = true;
     group.add(solid);
-    const outline = new THREE.Mesh(
-      mergeGeometries(this.outlineGeoms),
-      new THREE.MeshBasicMaterial({ color: 0x2a2238, side: THREE.BackSide }),
-    );
-    group.add(outline);
+
+    // Instances are bucketed into grid cells so each bucket can be frustum-culled, including from shadow passes.
+    const position = new THREE.Vector3();
+    for (const [kind, list] of this.instances) {
+      const kit = createKit(kind);
+      const cells = new Map<string, number[]>();
+      list.matrices.forEach((m, i) => {
+        position.setFromMatrixPosition(m);
+        const key = `${Math.floor(position.x / CELL)},${Math.floor(position.z / CELL)}`;
+        const cell = cells.get(key) ?? [];
+        cell.push(i);
+        cells.set(key, cell);
+      });
+      for (const indices of cells.values()) {
+        const mesh = new THREE.InstancedMesh(kit.geometry, kit.material, indices.length);
+        indices.forEach((src, i) => {
+          mesh.setMatrixAt(i, list.matrices[src]);
+          mesh.setColorAt(i, list.colors[src]);
+        });
+        mesh.castShadow = kit.castShadow;
+        mesh.receiveShadow = true;
+        mesh.computeBoundingSphere();
+        group.add(mesh);
+      }
+    }
+
+    const water = waterMaterial();
+    if (this.water.pos.length) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(this.water.pos, 3));
+      g.setAttribute('rect', new THREE.Float32BufferAttribute(this.water.rect, 4));
+      g.computeVertexNormals();
+      const mesh = new THREE.Mesh(g, water.material);
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+
+    for (const [image, poster] of this.posters) {
+      const g = new THREE.BufferGeometry();
+      g.setAttribute('position', new THREE.Float32BufferAttribute(poster.pos, 3));
+      g.setAttribute('uv', new THREE.Float32BufferAttribute(poster.uv, 2));
+      g.computeVertexNormals();
+      const mesh = new THREE.Mesh(g, posterMaterial(image));
+      mesh.receiveShadow = true;
+      group.add(mesh);
+    }
+
     return {
       world: this.world,
       group,
@@ -205,15 +424,11 @@ export class LevelBuilder {
       anchors: this.anchors,
       starts: this.starts,
       carLanes: this.carLanes,
+      animate: (time) => {
+        water.time.value = time;
+      },
     };
   }
-}
-
-function stripToPosition(g: THREE.BufferGeometry): THREE.BufferGeometry {
-  const out = new THREE.BufferGeometry();
-  const src = g.index ? g.toNonIndexed() : g;
-  out.setAttribute('position', src.attributes.position.clone());
-  return out;
 }
 
 const RIGHT: [number, number][] = [
@@ -264,11 +479,46 @@ export class Section {
   }
 
   /** Decorative geometry authored around the local origin, placed at (x, y, d) and turned with the section. */
-  decor(geom: THREE.BufferGeometry, x: number, y: number, d: number, color: number, outline = true) {
+  decor(geom: THREE.BufferGeometry, x: number, y: number, d: number, color: number) {
     const p = this.toWorld(x, d, y);
     geom.rotateY(this.heading);
     geom.translate(p.x, p.y, p.z);
-    this.lb.addDecor(geom, color, outline);
+    this.lb.addDecor(geom, color);
+  }
+
+  /** Yaw that turns a +z-facing kit piece to face `facing`, given in section coordinates (x, d). */
+  yaw([fx, fd]: [number, number]): number {
+    const dir = this.toWorld(fx, fd).sub(this.toWorld(0, 0));
+    return Math.atan2(dir.x, dir.z);
+  }
+
+  instance(kind: KitName, x: number, y: number, d: number, facing: [number, number], color: number, scale?: THREE.Vector3) {
+    this.lb.addInstance(kind, this.toWorld(x, d, y), this.yaw(facing), color, scale);
+  }
+
+  water(x0: number, x1: number, d0: number, d1: number, y: number) {
+    const a = this.toWorld(x0, d0);
+    const b = this.toWorld(x1, d1);
+    this.lb.addWater(new THREE.Vector3(Math.min(a.x, b.x), 0, Math.min(a.z, b.z)), new THREE.Vector3(Math.max(a.x, b.x), 0, Math.max(a.z, b.z)), y);
+  }
+
+  /** Pitched roof sitting on top of a footprint at height `y`; the ridge runs along d unless `ridgeAcross`. */
+  gableRoof(x0: number, x1: number, d0: number, d1: number, y: number, rise: number, roof: number, gable: number, ridgeAcross = false) {
+    const a = this.toWorld(x0, d0, y);
+    const b = this.toWorld(x1, d1, y);
+    const dAxisIsX = Math.abs(this.toWorld(0, 1).x - this.toWorld(0, 0).x) > 0.5;
+    this.lb.addGableRoof(
+      new THREE.Vector3(Math.min(a.x, b.x), y, Math.min(a.z, b.z)),
+      new THREE.Vector3(Math.max(a.x, b.x), y, Math.max(a.z, b.z)),
+      ridgeAcross ? !dAxisIsX : dAxisIsX,
+      rise,
+      roof,
+      gable,
+    );
+  }
+
+  poster(image: string, x: number, y: number, d: number, facing: [number, number], width: number, height: number) {
+    this.lb.addPoster(image, this.toWorld(x, d, y), this.yaw(facing), width, height);
   }
 
   item(x: number, d: number, y = 0) {

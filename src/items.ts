@@ -4,7 +4,7 @@ import type { World } from './physics';
 import { forward, type Runner } from './runner';
 import type { Fx } from './fx';
 import { sfx } from './audio';
-import { toon } from './toon';
+import { plastic } from './materials';
 import { GRAPPLE_RANGE } from './config';
 
 export type ItemKind = 'rocket' | 'grapple' | 'bulldozer' | 'soap' | 'spring' | 'coffee' | 'pigeons';
@@ -98,12 +98,12 @@ function boxTexture(): THREE.Texture {
 
 function makeRocket(): THREE.Object3D {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.9, 10).rotateX(Math.PI / 2), toon(0xff4d4d));
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.4, 10).rotateX(Math.PI / 2), toon(0xffffff));
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 0.9, 10).rotateX(Math.PI / 2), plastic(0xff4d4d));
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.4, 10).rotateX(Math.PI / 2), plastic(0xffffff));
   nose.position.z = 0.65;
   g.add(body, nose);
   for (let i = 0; i < 4; i++) {
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.3, 0.3), toon(0xffd86b));
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.3, 0.3), plastic(0xffd86b));
     fin.position.z = -0.35;
     fin.rotation.z = (i * Math.PI) / 2;
     fin.geometry.translate(0, 0.2, 0);
@@ -114,11 +114,11 @@ function makeRocket(): THREE.Object3D {
 
 function makeSoap(): THREE.Object3D {
   const g = new THREE.Group();
-  const bar = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.4, 4, 8).rotateZ(Math.PI / 2).scale(1, 0.55, 0.8), toon(0xff9ed8));
+  const bar = new THREE.Mesh(new THREE.CapsuleGeometry(0.25, 0.4, 4, 8).rotateZ(Math.PI / 2).scale(1, 0.55, 0.8), plastic(0xff9ed8));
   bar.position.y = 0.15;
   g.add(bar);
   for (let i = 0; i < 5; i++) {
-    const bubble = new THREE.Mesh(new THREE.SphereGeometry(0.08 + Math.random() * 0.08, 8, 6), toon(0xe8f8ff));
+    const bubble = new THREE.Mesh(new THREE.SphereGeometry(0.08 + Math.random() * 0.08, 8, 6), plastic(0xe8f8ff));
     bubble.position.set((Math.random() - 0.5) * 0.8, 0.3 + Math.random() * 0.3, (Math.random() - 0.5) * 0.6);
     g.add(bubble);
   }
@@ -127,8 +127,8 @@ function makeSoap(): THREE.Object3D {
 
 function makeAnchor(): THREE.Object3D {
   const g = new THREE.Group();
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.16, 8, 20), toon(0xffb627, { emissive: 0x663300 }));
-  const hook = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2), toon(0x45506a));
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.7, 0.16, 8, 20), plastic(0xffb627, { emissive: 0x663300 }));
+  const hook = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 1.2), plastic(0x45506a));
   hook.position.y = 1.3;
   g.add(ring, hook);
   return g;
@@ -148,7 +148,7 @@ export class ItemSystem {
     private fx: Fx,
   ) {
     const geom = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshToonMaterial({ map: boxTexture() });
+    const mat = new THREE.MeshStandardMaterial({ map: boxTexture(), roughness: 0.35, emissive: 0xffffff, emissiveMap: boxTexture(), emissiveIntensity: 0.25 });
     for (const pos of level.itemBoxes) {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.position.copy(pos);

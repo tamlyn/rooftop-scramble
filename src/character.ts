@@ -1,33 +1,32 @@
 import * as THREE from 'three';
 import type { Runner } from './runner';
-import { toon, OUTLINE_COLOR } from './toon';
+import { plastic } from './materials';
 import { RUN_SPEED } from './config';
 
-const outlineMaterial = new THREE.MeshBasicMaterial({ color: OUTLINE_COLOR, side: THREE.BackSide });
 const SKIN_TONES = [0xffd1a8, 0xc68a5e, 0xf2b98e, 0x8d5a3b, 0xffe0c2, 0xa86f48];
 export type Hat = 'cap' | 'beanie' | 'propeller' | 'tophat' | 'mohawk' | 'headband';
 export const HATS: Hat[] = ['cap', 'propeller', 'beanie', 'tophat', 'mohawk', 'headband'];
 
-function part(geom: THREE.BufferGeometry, color: number, outline = 0.06): THREE.Mesh {
-  const mesh = new THREE.Mesh(geom, toon(color));
-  if (outline > 0) {
-    const hull = new THREE.Mesh(geom, outlineMaterial);
-    geom.computeBoundingSphere();
-    hull.scale.setScalar(1 + outline / geom.boundingSphere!.radius);
-    mesh.add(hull);
-  }
+function part(geom: THREE.BufferGeometry, color: number, material: THREE.Material = plastic(color)): THREE.Mesh {
+  const mesh = new THREE.Mesh(geom, material);
+  mesh.castShadow = true;
   return mesh;
 }
 
-function limb(radius: number, length: number, color: number, footColor?: number): { pivot: THREE.Group; mesh: THREE.Mesh } {
+function limb(radius: number, length: number, color: number, footColor?: number, handColor?: number): { pivot: THREE.Group; mesh: THREE.Mesh } {
   const pivot = new THREE.Group();
-  const mesh = part(new THREE.CapsuleGeometry(radius, length, 4, 8), color, 0.04);
+  const mesh = part(new THREE.CapsuleGeometry(radius, length, 6, 14), color);
   mesh.position.y = -length / 2 - radius * 0.5;
   pivot.add(mesh);
   if (footColor !== undefined) {
-    const foot = part(new THREE.SphereGeometry(radius * 1.35, 10, 8).scale(1, 0.7, 1.5), footColor, 0.04);
+    const foot = part(new THREE.SphereGeometry(radius * 1.35, 16, 12).scale(1, 0.7, 1.5), footColor);
     foot.position.set(0, -length - radius, -radius * 0.6);
     pivot.add(foot);
+  }
+  if (handColor !== undefined) {
+    const hand = part(new THREE.SphereGeometry(radius * 1.45, 16, 12), handColor);
+    hand.position.y = -length - radius * 0.8;
+    pivot.add(hand);
   }
   return { pivot, mesh };
 }
@@ -37,21 +36,21 @@ function makeHat(hat: Hat, color: number): THREE.Object3D {
   const accent = new THREE.Color(color).offsetHSL(0.5, 0, 0).getHex();
   switch (hat) {
     case 'cap': {
-      const dome = part(new THREE.SphereGeometry(0.38, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), color, 0.03);
-      const brim = part(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 16).scale(1, 1, 1.4), color, 0.03);
+      const dome = part(new THREE.SphereGeometry(0.38, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), color);
+      const brim = part(new THREE.CylinderGeometry(0.3, 0.3, 0.04, 16).scale(1, 1, 1.4), color);
       brim.position.set(0, 0.02, -0.3);
       g.add(dome, brim);
       break;
     }
     case 'propeller': {
-      const dome = part(new THREE.SphereGeometry(0.38, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2), 0xff5050, 0.03);
-      const stalk = part(new THREE.CylinderGeometry(0.03, 0.03, 0.2), 0x333333, 0);
+      const dome = part(new THREE.SphereGeometry(0.38, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2), 0xff5050);
+      const stalk = part(new THREE.CylinderGeometry(0.03, 0.03, 0.2), 0x333333);
       stalk.position.y = 0.45;
       const blades = new THREE.Group();
       blades.name = 'spin';
       blades.position.y = 0.55;
       for (const c of [0xffd86b, 0x7cc4ff]) {
-        const blade = part(new THREE.BoxGeometry(0.6, 0.02, 0.1), c, 0.02);
+        const blade = part(new THREE.BoxGeometry(0.6, 0.02, 0.1), c);
         blade.rotation.y = c === 0xffd86b ? 0 : Math.PI / 2;
         blades.add(blade);
       }
@@ -59,17 +58,17 @@ function makeHat(hat: Hat, color: number): THREE.Object3D {
       break;
     }
     case 'beanie': {
-      const dome = part(new THREE.SphereGeometry(0.39, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 1.25, 1), color, 0.03);
-      const pom = part(new THREE.SphereGeometry(0.12, 10, 8), accent, 0.03);
+      const dome = part(new THREE.SphereGeometry(0.39, 28, 10, 0, Math.PI * 2, 0, Math.PI / 2).scale(1, 1.25, 1), color);
+      const pom = part(new THREE.SphereGeometry(0.12, 10, 8), accent);
       pom.position.y = 0.5;
       g.add(dome, pom);
       break;
     }
     case 'tophat': {
-      const brim = part(new THREE.CylinderGeometry(0.45, 0.45, 0.04, 16), 0x222233, 0.03);
-      const crown = part(new THREE.CylinderGeometry(0.28, 0.28, 0.5, 16), 0x222233, 0.03);
+      const brim = part(new THREE.CylinderGeometry(0.45, 0.45, 0.04, 16), 0x222233);
+      const crown = part(new THREE.CylinderGeometry(0.28, 0.28, 0.5, 16), 0x222233);
       crown.position.y = 0.25;
-      const band = part(new THREE.CylinderGeometry(0.29, 0.29, 0.08, 16), color, 0);
+      const band = part(new THREE.CylinderGeometry(0.29, 0.29, 0.08, 16), color);
       band.position.y = 0.06;
       g.add(brim, crown, band);
       g.position.y = 0.12;
@@ -77,7 +76,7 @@ function makeHat(hat: Hat, color: number): THREE.Object3D {
     }
     case 'mohawk': {
       for (let i = 0; i < 5; i++) {
-        const spike = part(new THREE.ConeGeometry(0.08, 0.35, 6), color, 0.02);
+        const spike = part(new THREE.ConeGeometry(0.08, 0.35, 6), color);
         spike.position.set(0, 0.25, -0.25 + i * 0.13);
         spike.rotation.x = -0.3 + i * 0.15;
         g.add(spike);
@@ -85,9 +84,9 @@ function makeHat(hat: Hat, color: number): THREE.Object3D {
       break;
     }
     case 'headband': {
-      const band = part(new THREE.TorusGeometry(0.37, 0.05, 6, 20).rotateX(Math.PI / 2), color, 0.02);
+      const band = part(new THREE.TorusGeometry(0.37, 0.05, 6, 20).rotateX(Math.PI / 2), color);
       band.position.y = -0.02;
-      const tail = part(new THREE.BoxGeometry(0.06, 0.06, 0.35), color, 0.02);
+      const tail = part(new THREE.BoxGeometry(0.06, 0.06, 0.35), color);
       tail.position.set(0.1, -0.05, 0.42);
       tail.rotation.x = -0.5;
       g.add(band, tail);
@@ -104,7 +103,7 @@ function makeBulldozer(): THREE.Group {
   body.position.y = 0.95;
   const cab = part(new THREE.BoxGeometry(1.5, 1, 1.2), yellow);
   cab.position.set(0, 1.9, 0.5);
-  const window = part(new THREE.BoxGeometry(1.3, 0.6, 1.25), 0x8fd3ff, 0);
+  const window = part(new THREE.BoxGeometry(1.3, 0.6, 1.25), 0x8fd3ff);
   window.position.set(0, 1.95, 0.5);
   const blade = part(new THREE.BoxGeometry(2.8, 1.1, 0.25), 0x8a8f99);
   blade.position.set(0, 0.6, -1.65);
@@ -122,14 +121,14 @@ function makeBulldozer(): THREE.Group {
 
 function makePigeon(): THREE.Group {
   const g = new THREE.Group();
-  const body = part(new THREE.SphereGeometry(0.22, 10, 8).scale(1, 0.85, 1.3), 0x9aa3b5, 0.03);
-  const head = part(new THREE.SphereGeometry(0.13, 10, 8), 0x7d879b, 0.03);
+  const body = part(new THREE.SphereGeometry(0.22, 10, 8).scale(1, 0.85, 1.3), 0x9aa3b5);
+  const head = part(new THREE.SphereGeometry(0.13, 10, 8), 0x7d879b);
   head.position.set(0, 0.17, -0.22);
-  const beak = part(new THREE.ConeGeometry(0.04, 0.12, 6).rotateX(-Math.PI / 2), 0xffb347, 0);
+  const beak = part(new THREE.ConeGeometry(0.04, 0.12, 6).rotateX(-Math.PI / 2), 0xffb347);
   beak.position.set(0, 0.15, -0.37);
   g.add(body, head, beak);
   for (const side of [-1, 1]) {
-    const wing = part(new THREE.BoxGeometry(0.35, 0.03, 0.22), 0x8a93a6, 0.02);
+    const wing = part(new THREE.BoxGeometry(0.35, 0.03, 0.22), 0x8a93a6);
     wing.geometry.translate(side * 0.17, 0, 0);
     wing.position.set(side * 0.12, 0.06, 0);
     wing.name = side < 0 ? 'wingL' : 'wingR';
@@ -153,10 +152,27 @@ function makeLabel(text: string, color: number): THREE.Sprite {
   g.fillText(text, 64, 32);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, depthWrite: false, transparent: true }));
   sprite.scale.set(0.8, 0.4, 1);
   sprite.renderOrder = 10;
   return sprite;
+}
+
+let blob: THREE.Texture | null = null;
+/** Soft-edged contact shadow; it stays even with real shadows because it shows exactly where you'll land. */
+function blobTexture(): THREE.Texture {
+  if (blob) return blob;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grad.addColorStop(0, '#fff');
+  grad.addColorStop(0.5, '#bbb');
+  grad.addColorStop(1, '#000');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  blob = new THREE.CanvasTexture(c);
+  return blob;
 }
 
 const tmpColor = new THREE.Color();
@@ -195,26 +211,29 @@ export class RunnerView {
     const skin = SKIN_TONES[runner.index % SKIN_TONES.length];
     const shorts = tmpColor.set(color).multiplyScalar(0.55).getHex();
 
-    this.torso = part(new THREE.CapsuleGeometry(0.33, 0.3, 6, 12), color);
+    this.torso = part(new THREE.CapsuleGeometry(0.33, 0.3, 10, 24), color);
     this.torso.position.y = 1.0;
-    const belly = part(new THREE.SphereGeometry(0.2, 10, 8).scale(1, 1, 0.5), 0xffffff, 0);
+    const belly = part(new THREE.SphereGeometry(0.2, 10, 8).scale(1, 1, 0.5), 0xffffff);
     belly.position.set(0, -0.03, -0.27);
     this.torso.add(belly);
 
-    const headMesh = part(new THREE.SphereGeometry(0.37, 18, 14), skin);
+    const headMesh = part(new THREE.SphereGeometry(0.37, 32, 24), skin);
     this.head.add(headMesh);
     for (const side of [-1, 1]) {
-      const eye = part(new THREE.SphereGeometry(0.13, 12, 10), 0xffffff, 0.02);
+      const eye = part(new THREE.SphereGeometry(0.13, 20, 14), 0xffffff);
       eye.position.set(side * 0.14, 0.06, -0.29);
-      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 6), toon(0x111111));
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 8), plastic(0x111111));
       pupil.position.set(0, 0, -0.1);
       eye.add(pupil);
       this.pupils.push(pupil);
       this.head.add(eye);
     }
-    const nose = part(new THREE.SphereGeometry(0.07, 8, 6), tmpColor.set(skin).multiplyScalar(0.85).getHex(), 0.02);
+    const nose = part(new THREE.SphereGeometry(0.07, 8, 6), tmpColor.set(skin).multiplyScalar(0.85).getHex());
     nose.position.set(0, -0.06, -0.37);
     this.head.add(nose);
+    const mouth = part(new THREE.TorusGeometry(0.1, 0.022, 6, 14, Math.PI).rotateZ(Math.PI).rotateX(0.35), 0x5a2a2a);
+    mouth.position.set(0, -0.12, -0.335);
+    this.head.add(mouth);
     const hat = makeHat(HATS[runner.index % HATS.length], color);
     hat.position.y += 0.1;
     this.head.add(hat);
@@ -227,15 +246,15 @@ export class RunnerView {
     this.legR = legR.pivot;
     this.legL.position.set(-0.16, 0.72, 0);
     this.legR.position.set(0.16, 0.72, 0);
-    const armL = limb(0.1, 0.38, skin);
-    const armR = limb(0.1, 0.38, skin);
+    const armL = limb(0.1, 0.36, color, undefined, skin);
+    const armR = limb(0.1, 0.36, color, undefined, skin);
     this.armL = armL.pivot;
     this.armR = armR.pivot;
     this.armL.position.set(-0.42, 1.22, 0);
     this.armR.position.set(0.42, 1.22, 0);
 
     for (const side of [-1, 1]) {
-      const spring = part(new THREE.TorusGeometry(0.12, 0.035, 6, 12).rotateX(Math.PI / 2), 0xb0b8c8, 0);
+      const spring = part(new THREE.TorusGeometry(0.12, 0.035, 6, 12).rotateX(Math.PI / 2), 0xb0b8c8);
       for (let i = 0; i < 4; i++) {
         const coil = spring.clone();
         coil.position.set(side * 0.16, -0.05 - i * 0.1, -0.05);
@@ -259,7 +278,7 @@ export class RunnerView {
     this.root.add(this.pigeons);
 
     for (let i = 0; i < 3; i++) {
-      const star = part(new THREE.OctahedronGeometry(0.12), 0xffe14d, 0.02);
+      const star = part(new THREE.OctahedronGeometry(0.12), 0xffe14d);
       this.stars.add(star);
     }
     this.stars.visible = false;
@@ -270,13 +289,13 @@ export class RunnerView {
     this.root.add(this.label);
 
     this.shadow = new THREE.Mesh(
-      new THREE.CircleGeometry(0.5, 20).rotateX(-Math.PI / 2),
-      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }),
+      new THREE.PlaneGeometry(1.2, 1.2).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x2a1f4a, alphaMap: blobTexture(), transparent: true, opacity: 0.45, depthWrite: false }),
     );
     this.shadow.renderOrder = 1;
     scene.add(this.shadow);
 
-    this.rope = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 5).translate(0, 0.5, 0).rotateX(Math.PI / 2), toon(0x6b4a2b));
+    this.rope = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1, 5).translate(0, 0.5, 0).rotateX(Math.PI / 2), plastic(0x6b4a2b));
     this.rope.visible = false;
     scene.add(this.rope);
 

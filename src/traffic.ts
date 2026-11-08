@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import type { CarLane } from './level/builder';
 import type { Runner } from './runner';
-import { toon, OUTLINE_COLOR } from './toon';
+import { plastic } from './materials';
+import { block } from './level/kit';
 import { sfx } from './audio';
 
 const CAR_LENGTH = 4.2;
@@ -10,24 +11,34 @@ const CAR_HEIGHT = 1.8;
 
 function makeCar(color: number): THREE.Object3D {
   const g = new THREE.Group();
-  const outline = new THREE.MeshBasicMaterial({ color: OUTLINE_COLOR, side: THREE.BackSide });
-  const add = (geom: THREE.BufferGeometry, c: number, x: number, y: number, z: number) => {
-    const m = new THREE.Mesh(geom, toon(c));
-    m.position.set(x, y, z);
-    const hull = new THREE.Mesh(geom, outline);
-    hull.scale.setScalar(1.04);
-    m.add(hull);
+  const add = (geom: THREE.BufferGeometry, material: THREE.Material) => {
+    const m = new THREE.Mesh(geom, material);
+    m.castShadow = true;
     g.add(m);
   };
+  const paint = plastic(color, { roughness: 0.3 });
+  const glass = plastic(0x2c3b66, { roughness: 0.05 });
+  const trim = plastic(0xe6e2dc);
+  const tyre = plastic(0x2a2733, { roughness: 0.8 });
   // Built facing +z so Object3D.lookAt points it down the lane.
-  add(new THREE.BoxGeometry(CAR_WIDTH, 0.9, CAR_LENGTH), color, 0, 0.75, 0);
-  add(new THREE.BoxGeometry(CAR_WIDTH * 0.85, 0.75, 2.2), 0xbfe6ff, 0, 1.5, -0.3);
+  add(block(CAR_WIDTH, 0.75, CAR_LENGTH, 0, 0.72, 0, 0.22), paint);
+  add(block(CAR_WIDTH * 0.84, 0.72, 2.3, 0, 1.38, -0.25, 0.2), paint);
+  add(block(CAR_WIDTH * 0.86, 0.46, 2.0, 0, 1.4, -0.25, 0.12), glass);
+  add(block(CAR_WIDTH * 0.7, 0.44, 2.36, 0, 1.4, -0.25, 0.1), glass);
+  for (const z of [-1, 1]) add(block(CAR_WIDTH + 0.06, 0.26, 0.3, 0, 0.42, z * (CAR_LENGTH / 2 - 0.05), 0.08), trim);
   for (const x of [-1, 1]) {
-    for (const z of [-1.35, 1.35]) add(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 12).rotateZ(Math.PI / 2), 0x2a2a33, x * 0.95, 0.4, z);
-    add(new THREE.SphereGeometry(0.16, 8, 6), 0xfff6b0, x * 0.65, 0.85, CAR_LENGTH / 2);
+    for (const z of [-1.3, 1.3]) {
+      add(new THREE.CylinderGeometry(0.42, 0.42, 0.32, 16).rotateZ(Math.PI / 2).translate(x * 0.92, 0.42, z), tyre);
+      add(new THREE.CylinderGeometry(0.22, 0.22, 0.34, 12).rotateZ(Math.PI / 2).translate(x * 0.93, 0.42, z), trim);
+    }
+    add(new THREE.SphereGeometry(0.16, 12, 8).scale(1, 0.8, 0.5).translate(x * 0.66, 0.85, CAR_LENGTH / 2), headlight);
+    add(new THREE.SphereGeometry(0.13, 10, 6).scale(1, 0.7, 0.5).translate(x * 0.7, 0.85, -CAR_LENGTH / 2), taillight);
   }
   return g;
 }
+
+const headlight = new THREE.MeshStandardMaterial({ color: 0xfff6d0, emissive: 0xfff0b0, emissiveIntensity: 1.6 });
+const taillight = new THREE.MeshStandardMaterial({ color: 0xff4040, emissive: 0xff2020, emissiveIntensity: 1.2 });
 
 interface Car {
   lane: CarLane;

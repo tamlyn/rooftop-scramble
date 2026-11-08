@@ -32,7 +32,9 @@ Rocket (homes in on the runner ahead), grappling hook (zips you to the yellow ri
 ## Code map
 
 - `src/runner.ts` – movement and parkour simulation (fixed 60 Hz tick, axis-aligned box collision)
-- `src/level/` – section-based level builder and the city layout; static geometry merges into one mesh
-- `src/game.ts` – race rules, contacts, cameras and split-screen rendering
+- `src/level/` – section-based level builder and the city layout. Collision is plain boxes; the look is layered on top: one merged, bevelled, vertex-coloured mesh whose faces index a texture array (`surfaces.ts`), instanced architectural pieces such as windows, shopfronts and lamps (`kit.ts`), animated water and painted signs
+- `src/render.ts` – all split-screen views render into one multisampled target, then screen-space ambient occlusion, bloom, tone mapping, grading and a per-view vignette; also the sky and its image-based lighting
+- `public/textures/` – hand-painted textures, signs and the billboard, generated with Codex image generation and downscaled
+- `src/game.ts` – race rules, contacts, cameras and split-screen layout
 - `src/items.ts`, `src/traffic.ts`, `src/bot.ts` – items, cars and CPU runners
 - `src/character.ts` – procedurally animated runner model

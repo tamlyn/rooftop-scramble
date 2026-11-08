@@ -4,36 +4,49 @@ import { Game, PLAYER_COLOURS } from './game';
 import { KeyboardSource, GamepadSource, KEYBOARD_SCHEMES, connectedGamepadIndices, type InputSource } from './input';
 import { unlockAudio } from './audio';
 import { MAX_RUNNERS } from './config';
-import { toon } from './toon';
+import { matte } from './materials';
+import { Pipeline, createSky, createEnvironment, NEAR, FAR, SKY_HORIZON, SUN_DIRECTION } from './render';
 
-const renderer = new THREE.WebGLRenderer({ antialias: true });
+const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+renderer.toneMapping = THREE.NeutralToneMapping;
+renderer.toneMappingExposure = 1.05;
 // Each split-screen viewport re-renders the shadow map around its own player instead.
 renderer.shadowMap.autoUpdate = false;
 renderer.autoClear = false;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x9fdcff);
-scene.fog = new THREE.Fog(0xbfe9ff, 90, 280);
-scene.add(new THREE.HemisphereLight(0xeaf6ff, 0xc8a27a, 1.7));
-const sun = new THREE.DirectionalLight(0xfff3dd, 2.2);
+scene.fog = new THREE.Fog(SKY_HORIZON, 70, 330);
+scene.add(createSky());
+scene.environment = createEnvironment(renderer);
+scene.environmentIntensity = 0.85;
+// A faint violet fill keeps shadows colourful rather than grey.
+scene.add(new THREE.HemisphereLight(0xb8c8ff, 0x9a80c0, 0.35));
+const sun = new THREE.DirectionalLight(0xfff0d8, 3.2);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
 Object.assign(sun.shadow.camera, { left: -45, right: 45, top: 45, bottom: -45, near: 1, far: 180 });
-sun.shadow.bias = -0.0005;
-sun.shadow.normalBias = 0.04;
+sun.shadow.bias = -0.0004;
+sun.shadow.normalBias = 0.05;
+sun.shadow.radius = 3;
+sun.shadow.intensity = 0.85;
 scene.add(sun, sun.target);
+const pipeline = new Pipeline(renderer);
 
 const level = buildCity();
 scene.add(level.group);
 addClouds(scene);
 
 function addClouds(target: THREE.Scene) {
-  const mat = toon(0xffffff);
-  const geom = new THREE.IcosahedronGeometry(1, 1);
+  const mat = matte(0xffffff, { emissive: 0x8a8aa8, roughness: 1 });
+  // Flat-bottomed puffs read as cartoon cumulus rather than floating balls.
+  const geom = new THREE.IcosahedronGeometry(1, 2);
+  const pos = geom.attributes.position;
+  for (let i = 0; i < pos.count; i++) pos.setY(i, Math.max(pos.getY(i), -0.25));
+  geom.computeVertexNormals();
   const min = new THREE.Vector3(Infinity, 0, Infinity);
   const max = new THREE.Vector3(-Infinity, 0, -Infinity);
   for (const cp of level.checkpoints) {
@@ -45,8 +58,9 @@ function addClouds(target: THREE.Scene) {
     const n = 3 + Math.floor(Math.random() * 4);
     for (let j = 0; j < n; j++) {
       const puff = new THREE.Mesh(geom, mat);
-      puff.position.set(j * 3 - n * 1.5, Math.random() * 1.5, (Math.random() - 0.5) * 3);
-      puff.scale.setScalar(2.5 + Math.random() * 2);
+      const size = 2.5 + Math.random() * 2 + (j > 0 && j < n - 1 ? 1.5 : 0);
+      puff.position.set(j * 3 - n * 1.5, size * 0.25, (Math.random() - 0.5) * 3);
+      puff.scale.setScalar(size);
       cloud.add(puff);
     }
     cloud.position.set(
@@ -145,7 +159,7 @@ addEventListener('keydown', (e) => {
   }
 });
 
-const lobbyCamera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
+const lobbyCamera = new THREE.PerspectiveCamera(55, 1, NEAR, FAR);
 function renderLobbyScene(time: number) {
   // Drift slowly up the high street, above the rooftops.
   const start = level.starts[0];
@@ -154,17 +168,20 @@ function renderLobbyScene(time: number) {
   lobbyCamera.lookAt(start.pos.x, 4, z - 30);
   lobbyCamera.aspect = innerWidth / innerHeight;
   lobbyCamera.updateProjectionMatrix();
-  sun.position.set(start.pos.x - 30, 60, start.pos.z);
-  sun.target.position.set(start.pos.x, 0, start.pos.z - 20);
+  const focus = new THREE.Vector3(start.pos.x, 0, z - 20);
+  sun.position.copy(focus).addScaledVector(SUN_DIRECTION, 70);
+  sun.target.position.copy(focus);
   sun.target.updateMatrixWorld();
   renderer.shadowMap.needsUpdate = true;
-  renderer.setViewport(0, 0, innerWidth, innerHeight);
-  renderer.clear();
+  pipeline.begin();
+  pipeline.view(0, 0, innerWidth, innerHeight, lobbyCamera);
   renderer.render(scene, lobbyCamera);
+  pipeline.end();
 }
 
 function resize() {
   renderer.setSize(innerWidth, innerHeight);
+  pipeline.setSize(innerWidth, innerHeight);
 }
 addEventListener('resize', resize);
 resize();
@@ -172,9 +189,10 @@ resize();
 const clock = new THREE.Clock();
 function frame() {
   const dt = clock.getDelta();
+  level.animate(clock.elapsedTime);
   if (game) {
     game.update(dt);
-    game?.render(renderer, sun);
+    game?.render(renderer, pipeline, sun);
   } else {
     updateLobby();
     if (!game) renderLobbyScene(clock.elapsedTime);

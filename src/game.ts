@@ -10,6 +10,7 @@ import { Traffic } from './traffic';
 import { Hud, formatTime } from './hud';
 import { NO_INPUT, type InputSource } from './input';
 import { sfx } from './audio';
+import { NEAR, FAR, SUN_DIRECTION, type Pipeline } from './render';
 
 export const PLAYER_COLOURS = [0xff5a5f, 0x3a86ff, 0x2ec27e, 0xffbe0b];
 const CPU_COLOURS = [0x9b5de5, 0xf15bb5, 0x00bbf9, 0xff8c42, 0x8ac926];
@@ -17,7 +18,6 @@ const CPU_NAMES = ['Gizmo', 'Noodle', 'Biscuit', 'Waffles', 'Pickle'];
 
 const CAMERA_DISTANCE = 6.5;
 const CAMERA_HEIGHT = 2.4;
-const SUN_OFFSET = new THREE.Vector3(-30, 60, 20);
 
 interface Human {
   runner: Runner;
@@ -82,7 +82,7 @@ export class Game {
       this.views.push(new RunnerView(runner, name, this.dynamic));
 
       if (human) {
-        const camera = new THREE.PerspectiveCamera(70, 1, 0.1, 400);
+        const camera = new THREE.PerspectiveCamera(70, 1, NEAR, FAR);
         const hud = new Hud(hudContainer, name, css(color));
         this.humans.push({ runner, source: sources[i], camera, camYaw: start.heading, pivotY: start.pos.y + 1.7, hud });
       } else {
@@ -379,28 +379,20 @@ export class Game {
     this.resultsEl = el;
   }
 
-  render(renderer: THREE.WebGLRenderer, sun: THREE.DirectionalLight) {
+  render(renderer: THREE.WebGLRenderer, pipeline: Pipeline, sun: THREE.DirectionalLight) {
     const canvas = renderer.domElement;
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
-    const viewports = splitScreen(this.humans.length, width, height);
-    renderer.setScissorTest(true);
-    renderer.setClearColor(0x2a2238);
-    renderer.setViewport(0, 0, width, height);
-    renderer.setScissor(0, 0, width, height);
-    renderer.clear();
+    const viewports = splitScreen(this.humans.length, canvas.clientWidth, canvas.clientHeight);
+    pipeline.begin();
     this.humans.forEach((h, i) => {
       const vp = viewports[i];
-      const glY = height - vp.y - vp.h;
-      renderer.setViewport(vp.x, glY, vp.w, vp.h);
-      renderer.setScissor(vp.x, glY, vp.w, vp.h);
+      pipeline.view(vp.x, vp.y, vp.w, vp.h, h.camera);
       h.camera.aspect = vp.w / vp.h;
       h.camera.updateProjectionMatrix();
       h.hud.layout(vp.x, vp.y, vp.w, vp.h);
 
       // Each viewport gets its own tight shadow frustum around its player.
       const p = h.runner.pos;
-      sun.position.copy(p).add(SUN_OFFSET);
+      sun.position.copy(p).addScaledVector(SUN_DIRECTION, 70);
       sun.target.position.copy(p);
       sun.target.updateMatrixWorld();
       renderer.shadowMap.needsUpdate = true;
@@ -408,7 +400,7 @@ export class Game {
       for (const v of this.views) v.label.visible = v.runner !== h.runner;
       renderer.render(this.scene, h.camera);
     });
-    renderer.setScissorTest(false);
+    pipeline.end();
   }
 }
 
