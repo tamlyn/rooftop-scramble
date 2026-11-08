@@ -196,7 +196,7 @@ export class LevelBuilder {
     // Chamfers catch the light like worn, painted edges.
     const edge = side.clone().lerp(WHITE, 0.2);
     const bevel = style.bevel === false ? 0 : Math.min(MAX_BEVEL, Math.min(size.x, size.y, size.z) * 0.2);
-    const centre = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+    const center = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
     const plain: [number, number][] = [
       [0.5, 0.5],
       [0.5, 0.5],
@@ -204,7 +204,7 @@ export class LevelBuilder {
       [0.5, 0.5],
     ];
     chamferedBox(size.clone().multiplyScalar(0.5), bevel, (local, n, face) => {
-      const pts = local.map((p) => p.add(centre));
+      const pts = local.map((p) => p.add(center));
       if (!face) {
         this.mesh.poly(pts, plain, n, edge, 0, true);
         return;
@@ -324,14 +324,14 @@ export class LevelBuilder {
   }
 
   /** A quad of painted artwork facing `yaw`. */
-  addPoster(image: string, centre: THREE.Vector3, yaw: number, width: number, height: number) {
+  addPoster(image: string, center: THREE.Vector3, yaw: number, width: number, height: number) {
     let poster = this.posters.get(image);
     if (!poster) {
       poster = { pos: [], uv: [] };
       this.posters.set(image, poster);
     }
     const right = new THREE.Vector3(Math.cos(yaw), 0, -Math.sin(yaw));
-    const corner = (sx: number, sy: number) => centre.clone().addScaledVector(right, (sx * width) / 2).setY(centre.y + (sy * height) / 2);
+    const corner = (sx: number, sy: number) => center.clone().addScaledVector(right, (sx * width) / 2).setY(center.y + (sy * height) / 2);
     const quad: [THREE.Vector3, number, number][] = [
       [corner(-1, -1), 0, 0],
       [corner(1, -1), 1, 0],

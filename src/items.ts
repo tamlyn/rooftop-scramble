@@ -4,7 +4,7 @@ import type { World } from './physics';
 import { forward, type Runner } from './runner';
 import type { Fx } from './fx';
 import { sfx } from './audio';
-import { plastic } from './materials';
+import { disposeTree, plastic } from './materials';
 import { GRAPPLE_RANGE } from './config';
 
 export type ItemKind = 'rocket' | 'grapple' | 'bulldozer' | 'soap' | 'spring' | 'coffee' | 'pigeons';
@@ -148,7 +148,8 @@ export class ItemSystem {
     private fx: Fx,
   ) {
     const geom = new THREE.BoxGeometry(1, 1, 1);
-    const mat = new THREE.MeshStandardMaterial({ map: boxTexture(), roughness: 0.35, emissive: 0xffffff, emissiveMap: boxTexture(), emissiveIntensity: 0.25 });
+    const tex = boxTexture();
+    const mat = new THREE.MeshStandardMaterial({ map: tex, roughness: 0.35, emissive: 0xffffff, emissiveMap: tex, emissiveIntensity: 0.25 });
     for (const pos of level.itemBoxes) {
       const mesh = new THREE.Mesh(geom, mat);
       mesh.position.copy(pos);
@@ -204,8 +205,8 @@ export class ItemSystem {
   /** Bots ask before using so they don't waste a grapple with nothing to hook onto. */
   canUse(r: Runner, runners: Runner[]): boolean {
     if (!r.item || r.itemRoulette > 0 || !r.canAct) return false;
-    if (r.item === 'grapple') return this.findAnchor(r) !== null || this.runnerAt(runners, r.place - 1, r, 35) !== null;
-    if (r.item === 'pigeons') return r.place > 1;
+    if (r.item === 'grapple') return this.findAnchor(r) !== null || this.ahead(runners, r, 35) !== null;
+    if (r.item === 'pigeons') return this.ahead(runners, r) !== null;
     return true;
   }
 
@@ -214,9 +215,10 @@ export class ItemSystem {
     const f = forward(r.heading);
     switch (r.item) {
       case 'rocket': {
-        // The leader has nobody to aim at ahead, so their rocket goes backwards.
-        const target = r.place > 1 ? this.runnerAt(runners, r.place - 1, r) : this.runnerAt(runners, 2, r);
-        const dir = target && r.place === 1 ? f.clone().negate() : f.clone();
+        // With nobody left ahead, the rocket goes backwards at whoever is chasing.
+        const ahead = this.ahead(runners, r);
+        const target = ahead ?? this.racers(runners, r).find((o) => o.place > r.place) ?? null;
+        const dir = ahead || !target ? f.clone() : f.clone().negate();
         const pos = r.pos.clone().add(new THREE.Vector3(0, 1.4, 0)).addScaledVector(dir, 0.8);
         const vel = dir.multiplyScalar(ROCKET_SPEED * 0.6).add(new THREE.Vector3(0, 7, 0));
         const mesh = makeRocket();
@@ -231,7 +233,7 @@ export class ItemSystem {
         if (anchor) {
           r.startGrapple(anchor);
         } else {
-          const victim = this.runnerAt(runners, r.place - 1, r, 35);
+          const victim = this.ahead(runners, r, 35);
           if (!victim) return false;
           const pull = r.pos.clone().sub(victim.pos).setY(0).normalize();
           victim.knock('tumble', 1, pull.x * 16, 7, pull.z * 16);
@@ -264,7 +266,8 @@ export class ItemSystem {
         sfx.item();
         break;
       case 'pigeons': {
-        const victim = this.runnerAt(runners, r.place > 1 ? 1 : 2, r);
+        // Whoever is leading the runners still racing, or the runner-up if that's us.
+        const victim = this.racers(runners, r)[0];
         if (!victim) return false;
         victim.effects.pigeons = 5;
         sfx.coo();
@@ -275,10 +278,17 @@ export class ItemSystem {
     return true;
   }
 
-  private runnerAt(runners: Runner[], place: number, self: Runner, maxDistance = Infinity): Runner | null {
-    const found = runners.find((o) => o !== self && o.place === place && !o.finished);
-    if (!found || found.pos.distanceTo(self.pos) > maxDistance) return null;
-    return found;
+  /** Other runners still on the course, front to back. Finished runners hold the top places but are out of reach. */
+  private racers(runners: Runner[], self: Runner): Runner[] {
+    return runners.filter((o) => o !== self && !o.finished).sort((a, b) => a.place - b.place);
+  }
+
+  /** The nearest runner still racing ahead of `self`. */
+  private ahead(runners: Runner[], self: Runner, maxDistance = Infinity): Runner | null {
+    const found = this.racers(runners, self)
+      .filter((o) => o.place < self.place)
+      .at(-1);
+    return found && found.pos.distanceTo(self.pos) <= maxDistance ? found : null;
   }
 
   findAnchor(r: Runner): THREE.Vector3 | null {
@@ -335,6 +345,7 @@ export class ItemSystem {
       if (explode) {
         this.explode(rk.pos, runners);
         this.group.remove(rk.mesh);
+        disposeTree(rk.mesh);
         this.rockets.splice(i, 1);
       }
     }
@@ -370,6 +381,7 @@ export class ItemSystem {
       }
       if (gone) {
         this.group.remove(s.mesh);
+        disposeTree(s.mesh);
         this.soaps.splice(i, 1);
       }
     }

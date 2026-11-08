@@ -195,10 +195,10 @@ function shopfront(s: Section, x0: number, x1: number, d0: number, d1: number, f
   if (len < 3.5) return;
   const bays = Math.max(1, Math.floor(len / 4.8));
   const bay = len / bays;
-  const pilasterColour = lighten(L.shop, 0.3);
+  const pilasterColor = lighten(L.shop, 0.3);
   for (let i = 0; i <= bays; i++) {
     const [x, d] = at(THREE.MathUtils.clamp(a0 + i * bay, a0 + 0.28, a1 - 0.28));
-    s.instance('pilaster', x, 0, d, face, pilasterColour);
+    s.instance('pilaster', x, 0, d, face, pilasterColor);
   }
   const windowY = SHOP_H / 2 + 0.14 + 0.62;
   for (let i = 0; i < bays; i++) {
@@ -250,7 +250,7 @@ function hangingSign(s: Section, at: (a: number, out?: number) => [number, numbe
   }
 }
 
-function awningOn(s: Section, x0: number, x1: number, d0: number, d1: number, [fx, fd]: Facing, colour: number) {
+function awningOn(s: Section, x0: number, x1: number, d0: number, d1: number, [fx, fd]: Facing, color: number) {
   const width = (fx !== 0 ? d1 - d0 : x1 - x0) - 1.4;
   if (width < 2.5) return;
   const x = fx > 0 ? x1 : fx < 0 ? x0 : (x0 + x1) / 2;
@@ -262,7 +262,7 @@ function awningOn(s: Section, x0: number, x1: number, d0: number, d1: number, [f
   const tilt = 0.32;
   for (let k = 0; k < stripes; k++) {
     const z = -width / 2 + (k + 0.5) * sw;
-    const c = k % 2 ? WHITE : colour;
+    const c = k % 2 ? WHITE : color;
     const canopy = new THREE.BoxGeometry(depth, 0.06, sw).translate(depth / 2, 0, z).rotateZ(-tilt).rotateY(angle);
     s.decor(canopy, x, 2.92, d, c);
     // Scalloped valance: a half-disc hanging from each stripe.
@@ -517,9 +517,9 @@ function arch(s: Section, d: number, color: number, stripe: number) {
 }
 
 function pigeonStatue(s: Section, x: number, y: number, d: number) {
-  const grey = 0x9aa3b5;
-  s.decor(new THREE.SphereGeometry(1.1, 20, 14).scale(1, 0.9, 1.4), x, y + 1.1, d, grey);
-  s.decor(new THREE.SphereGeometry(0.65, 20, 14), x, y + 2.3, d - 1.0, grey);
+  const gray = 0x9aa3b5;
+  s.decor(new THREE.SphereGeometry(1.1, 20, 14).scale(1, 0.9, 1.4), x, y + 1.1, d, gray);
+  s.decor(new THREE.SphereGeometry(0.65, 20, 14), x, y + 2.3, d - 1.0, gray);
   s.decor(new THREE.ConeGeometry(0.22, 0.6, 10).rotateX(-Math.PI / 2), x, y + 2.25, d - 1.75, 0xffb347);
   s.decor(new THREE.SphereGeometry(0.16, 10, 8), x - 0.38, y + 2.45, d - 1.45, 0xffffff);
   s.decor(new THREE.SphereGeometry(0.16, 10, 8), x + 0.38, y + 2.45, d - 1.45, 0xffffff);
@@ -574,7 +574,7 @@ function skyline(lb: LevelBuilder) {
     min.min(p);
     max.max(p);
   }
-  const colours = [0xa9b8e0, 0xc4b3dd, 0x9fc8d8, 0xd9b8c8, 0xb8c9e8, 0xe6c8a8];
+  const colors = [0xa9b8e0, 0xc4b3dd, 0x9fc8d8, 0xd9b8c8, 0xb8c9e8, 0xe6c8a8];
   for (let placed = 0, tries = 0; placed < 70 && tries < 2000; tries++) {
     const x = min.x - 150 + rand() * (max.x - min.x + 300);
     const z = min.z - 150 + rand() * (max.z - min.z + 300);
@@ -583,7 +583,7 @@ function skyline(lb: LevelBuilder) {
     const m = half + 6;
     if (dist > 170 || !lb.world.isFree(x - m, -50, z - m, x + m, 200, z + m)) continue;
     const h = 24 + rand() * 40 + Math.max(0, 90 - dist) * 0.3;
-    const color = pick(colours);
+    const color = pick(colors);
     lb.addBox(new THREE.Vector3(x - half, -1, z - half), new THREE.Vector3(x + half, h, z + half), {
       color,
       top: roofOf(color),

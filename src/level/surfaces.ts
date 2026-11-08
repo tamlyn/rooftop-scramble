@@ -51,8 +51,8 @@ const TINT = '#fff';
 const KEEP = '#000';
 const shade = (v: number) => `rgb(${v * 255},${v * 255},${v * 255})`;
 
-function rect(c: Ctx, m: Ctx, colour: string, mask: string, x: number, y: number, w: number, h: number) {
-  c.fillStyle = colour;
+function rect(c: Ctx, m: Ctx, color: string, mask: string, x: number, y: number, w: number, h: number) {
+  c.fillStyle = color;
   c.fillRect(x, y, w, h);
   m.fillStyle = mask;
   m.fillRect(x, y, w, h);
@@ -111,20 +111,18 @@ function writeLayer(data: Uint8Array, layer: number, rgb: Uint8ClampedArray, mas
   }
 }
 
-function loadImageLayer(tex: THREE.DataArrayTexture, data: Uint8Array, layer: number, name: string) {
+async function loadImageLayer(data: Uint8Array, layer: number, name: string) {
   const img = new Image();
-  img.onload = () => {
-    const g = canvas('#fff');
-    g.drawImage(img, 0, 0, SIZE, SIZE);
-    const rgb = g.getImageData(0, 0, SIZE, SIZE).data;
-    // Normalise brightness so every texture tints its box colour by about the same amount.
-    let sum = 0;
-    for (let i = 0; i < rgb.length; i += 4) sum += rgb[i] * 0.3 + rgb[i + 1] * 0.59 + rgb[i + 2] * 0.11;
-    const mean = sum / (rgb.length / 4) / 255;
-    writeLayer(data, layer, rgb, null, 0.9 / mean);
-    tex.needsUpdate = true;
-  };
   img.src = `${import.meta.env.BASE_URL}textures/${name}.jpg`;
+  await img.decode();
+  const g = canvas('#fff');
+  g.drawImage(img, 0, 0, SIZE, SIZE);
+  const rgb = g.getImageData(0, 0, SIZE, SIZE).data;
+  // Normalise brightness so every texture tints its box colour by about the same amount.
+  let sum = 0;
+  for (let i = 0; i < rgb.length; i += 4) sum += rgb[i] * 0.3 + rgb[i + 1] * 0.59 + rgb[i + 2] * 0.11;
+  const mean = sum / (rgb.length / 4) / 255;
+  writeLayer(data, layer, rgb, null, 0.9 / mean);
 }
 
 /**
@@ -134,10 +132,11 @@ function loadImageLayer(tex: THREE.DataArrayTexture, data: Uint8Array, layer: nu
 export function createLevelMaterial(): THREE.MeshStandardMaterial {
   const data = new Uint8Array(SIZE * SIZE * 4 * ORDER.length).fill(255);
   const tex = new THREE.DataArrayTexture(data, SIZE, SIZE, ORDER.length);
+  const loads: Promise<void>[] = [];
   ORDER.forEach((name, layer) => {
     const spec = SURFACES[name];
     if (spec.image) {
-      loadImageLayer(tex, data, layer, spec.image);
+      loads.push(loadImageLayer(data, layer, spec.image));
       return;
     }
     const c = canvas('#fff');
@@ -154,6 +153,11 @@ export function createLevelMaterial(): THREE.MeshStandardMaterial {
   tex.generateMipmaps = true;
   tex.anisotropy = 8;
   tex.needsUpdate = true;
+  // Each upload re-sends the whole array and rebuilds its mipmaps, so wait for every image and upload once.
+  Promise.allSettled(loads).then((results) => {
+    for (const r of results) if (r.status === 'rejected') console.error('Surface texture failed to load', r.reason);
+    tex.needsUpdate = true;
+  });
 
   const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 });
   material.onBeforeCompile = (shader) => {

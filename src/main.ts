@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { buildCity } from './level/city';
-import { Game, PLAYER_COLOURS } from './game';
+import { Game, PLAYER_COLORS } from './game';
 import { KeyboardSource, GamepadSource, KEYBOARD_SCHEMES, connectedGamepadIndices, type InputSource } from './input';
 import { unlockAudio } from './audio';
 import { MAX_RUNNERS } from './config';
@@ -98,10 +98,10 @@ function renderLobby() {
   slotsEl.innerHTML = [0, 1, 2, 3]
     .map((i) => {
       const s = joined[i];
-      const colour = '#' + PLAYER_COLOURS[i].toString(16).padStart(6, '0');
+      const color = '#' + PLAYER_COLORS[i].toString(16).padStart(6, '0');
       if (!s) return `<div class="slot empty"><b>P${i + 1}</b><span>Press jump to join</span></div>`;
       const controls = help[s.id] ?? 'Stick/D-pad move · A jump · X/B dive · Y/RB item';
-      return `<div class="slot" style="--c:${colour}"><b>P${i + 1}</b><span>${s.label}</span><small>${controls}</small></div>`;
+      return `<div class="slot" style="--c:${color}"><b>P${i + 1}</b><span>${s.label}</span><small>${controls}</small></div>`;
     })
     .join('');
   const cpuCount = cpus ? MAX_RUNNERS - joined.length : 0;

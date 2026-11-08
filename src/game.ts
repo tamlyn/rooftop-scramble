@@ -11,9 +11,10 @@ import { Hud, formatTime } from './hud';
 import { NO_INPUT, type InputSource } from './input';
 import { sfx } from './audio';
 import { NEAR, FAR, SUN_DIRECTION, type Pipeline } from './render';
+import { disposeTree } from './materials';
 
-export const PLAYER_COLOURS = [0xff5a5f, 0x3a86ff, 0x2ec27e, 0xffbe0b];
-const CPU_COLOURS = [0x9b5de5, 0xf15bb5, 0x00bbf9, 0xff8c42, 0x8ac926];
+export const PLAYER_COLORS = [0xff5a5f, 0x3a86ff, 0x2ec27e, 0xffbe0b];
+const CPU_COLORS = [0x9b5de5, 0xf15bb5, 0x00bbf9, 0xff8c42, 0x8ac926];
 const CPU_NAMES = ['Gizmo', 'Noodle', 'Biscuit', 'Waffles', 'Pickle'];
 
 const CAMERA_DISTANCE = 6.5;
@@ -31,6 +32,10 @@ interface Human {
 type Phase = 'countdown' | 'racing' | 'results';
 
 const css = (hex: number) => '#' + hex.toString(16).padStart(6, '0');
+
+const scratchPivot = new THREE.Vector3();
+const scratchDir = new THREE.Vector3();
+const scratchLook = new THREE.Vector3();
 
 export class Game {
   readonly runners: Runner[] = [];
@@ -71,7 +76,7 @@ export class Game {
     const total = Math.min(C.MAX_RUNNERS, sources.length + cpuCount);
     for (let i = 0; i < total; i++) {
       const human = i < sources.length;
-      const color = human ? PLAYER_COLOURS[i] : CPU_COLOURS[(i - sources.length) % CPU_COLOURS.length];
+      const color = human ? PLAYER_COLORS[i] : CPU_COLORS[(i - sources.length) % CPU_COLORS.length];
       const name = human ? `P${i + 1}` : CPU_NAMES[(i - sources.length) % CPU_NAMES.length];
       const runner = new Runner(i, name, color, !human);
       // Humans start on the back row so CPUs aren't simply stuck behind them.
@@ -93,6 +98,7 @@ export class Game {
 
   dispose() {
     this.scene.remove(this.dynamic);
+    disposeTree(this.dynamic);
     for (const h of this.humans) h.hud.dispose();
     this.resultsEl?.remove();
   }
@@ -145,7 +151,7 @@ export class Game {
     for (const h of this.humans) {
       const controls = h.source.poll();
       h.runner.setInput(racing && !h.runner.finished ? controls : NO_INPUT);
-      if (racing && controls.itemPressed) this.items.use(h.runner, this.runners);
+      if (racing && !h.runner.finished && controls.itemPressed) this.items.use(h.runner, this.runners);
     }
     for (const [runner, bot] of this.bots) {
       if (!racing || runner.finished) {
@@ -259,7 +265,7 @@ export class Game {
 
   private updateProgress() {
     const cps = this.level.checkpoints;
-    const rel = new THREE.Vector3();
+    const rel = scratchDir;
     for (const r of this.runners) {
       if (r.finished) continue;
       const i = r.nextCheckpoint;
@@ -301,16 +307,14 @@ export class Game {
     h.camYaw += diff * (1 - Math.exp(-3.5 * dt));
     h.pivotY += (r.pos.y + 1.7 - h.pivotY) * (1 - Math.exp(-8 * dt));
 
-    const pivot = new THREE.Vector3(r.pos.x, h.pivotY, r.pos.z);
-    const back = new THREE.Vector3(Math.sin(h.camYaw), 0, Math.cos(h.camYaw));
-    const offset = back.multiplyScalar(CAMERA_DISTANCE).setY(CAMERA_HEIGHT);
+    const pivot = scratchPivot.set(r.pos.x, h.pivotY, r.pos.z);
+    const offset = scratchDir.set(Math.sin(h.camYaw) * CAMERA_DISTANCE, CAMERA_HEIGHT, Math.cos(h.camYaw) * CAMERA_DISTANCE);
     const length = offset.length();
     const dir = offset.divideScalar(length);
     const hit = this.level.world.raycast(pivot, dir, length);
     const distance = hit ? Math.max(0.8, hit.distance - 0.3) : length;
     cam.position.copy(pivot).addScaledVector(dir, distance);
-    const look = forward(h.camYaw).multiplyScalar(3).add(pivot);
-    cam.lookAt(look);
+    cam.lookAt(forward(h.camYaw, scratchLook).multiplyScalar(3).add(pivot));
 
     const speed = Math.hypot(r.vel.x, r.vel.z);
     const fov = 68 + Math.max(0, speed - C.RUN_SPEED) * 1.5;
@@ -354,13 +358,14 @@ export class Game {
     }
     if (this.phase !== 'results') return;
     this.resultsAge += dt;
-    if (this.resultsAge < 0) return;
-    if (!this.resultsEl) this.showResults();
+    if (this.resultsAge >= 0 && !this.resultsEl) this.showResults();
+    // Poll from the start so presses made before the results are readable are drained rather than buffered.
+    const presses = this.humans.map((h) => h.source.poll());
     if (this.resultsAge < 1) return;
-    for (const h of this.humans) {
-      const c = h.source.poll();
-      if (c.jumpPressed || c.startPressed) this.onExit('again');
-      else if (c.itemPressed) this.onExit('lobby');
+    for (const c of presses) {
+      // Several sources can report the same key (both keyboard schemes share Enter), so act only once.
+      if (c.jumpPressed || c.startPressed) return this.onExit('again');
+      if (c.itemPressed) return this.onExit('lobby');
     }
   }
 

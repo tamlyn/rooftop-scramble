@@ -25,6 +25,7 @@ interface Contact {
 const UP_PROBE = 0.08;
 const scratchBoxes: import('./physics').Box[] = [];
 const tmp = new Vector3();
+const grappleFrom = new Vector3();
 
 export function forward(heading: number, out = new Vector3()): Vector3 {
   return out.set(-Math.sin(heading), 0, -Math.cos(heading));
@@ -135,8 +136,15 @@ export class Runner {
     return C.RUN_SPEED * (e.coffee > 0 ? 1.55 : 1) * (e.bulldozer > 0 ? 1.3 : 1) * (e.pigeons > 0 ? 0.75 : 1);
   }
 
+  /** A hit from someone or something else, which immunity after a respawn or recovery protects against. */
   knock(style: KnockStyle, duration: number, vx: number, vy: number, vz: number): boolean {
-    if (this.immune > 0 || this.effects.bulldozer > 0 || this.finished) return false;
+    return this.immune <= 0 && this.fall(style, duration, vx, vy, vz);
+  }
+
+  /** Self-inflicted falls (hard landings, diving into walls) ignore immunity. */
+  private fall(style: KnockStyle, duration: number, vx: number, vy: number, vz: number): boolean {
+    // Already knocked runners can't be re-hit, otherwise anything that keeps overlapping them hits every frame.
+    if (this.state === 'knocked' || this.effects.bulldozer > 0 || this.finished) return false;
     this.state = 'knocked';
     this.knockStyle = style;
     this.knockDuration = duration;
@@ -225,9 +233,7 @@ export class Runner {
     if (hit.landed) {
       this.climbStamina = C.CLIMB_TIME;
       this.airDiveUsed = false;
-      if (hit.impactVy < -C.HARD_LANDING_SPEED) {
-        this.immune = 0;
-        this.knock('splat', 0.7, 0, 0, 0);
+      if (hit.impactVy < -C.HARD_LANDING_SPEED && this.fall('splat', 0.7, 0, 0, 0)) {
         this.events.push('splat');
         return;
       }
@@ -258,10 +264,7 @@ export class Runner {
     this.applyGravity(dt);
     const speed = Math.hypot(this.vel.x, this.vel.z);
     const hit = this.moveAndCollide(dt, world);
-    if (hit.wall && speed > 6 && this.stateTime < 0.6) {
-      const n = hit.wall;
-      this.immune = 0;
-      this.knock('bonk', 0.6, n.x * 4, 4, n.z * 4);
+    if (hit.wall && speed > 6 && this.stateTime < 0.6 && this.fall('bonk', 0.6, hit.wall.x * 4, 4, hit.wall.z * 4)) {
       this.events.push('bonk');
       return;
     }
@@ -392,7 +395,7 @@ export class Runner {
     tmp.divideScalar(dist);
     this.heading = headingOf(tmp.x, tmp.z);
     this.vel.copy(tmp).multiplyScalar(C.GRAPPLE_SPEED);
-    const before = this.pos.clone();
+    const before = grappleFrom.copy(this.pos);
     this.moveAndCollide(dt, world);
     const moved = before.distanceTo(this.pos);
     this.grappleStuck = moved < C.GRAPPLE_SPEED * dt * 0.3 ? this.grappleStuck + dt : 0;

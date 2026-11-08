@@ -302,10 +302,6 @@ export class RunnerView {
     scene.add(this.root);
   }
 
-  dispose(scene: THREE.Object3D) {
-    scene.remove(this.root, this.shadow, this.rope);
-  }
-
   onEvent(event: string) {
     if (event === 'jump' || event === 'bounce' || event === 'wallJump') this.squashVel = 6;
     if (event === 'land' || event === 'mantle') this.squashVel = -5;

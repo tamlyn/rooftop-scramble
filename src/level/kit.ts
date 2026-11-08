@@ -39,7 +39,7 @@ function paint(geom: THREE.BufferGeometry, color: number): THREE.BufferGeometry 
   return g;
 }
 
-function assemble(parts: Part[]): THREE.BufferGeometry {
+export function assemble(parts: Part[]): THREE.BufferGeometry {
   return mergeGeometries(parts.map((p) => paint(p.geom, p.color)));
 }
 
